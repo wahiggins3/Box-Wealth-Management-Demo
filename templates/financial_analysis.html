@@ -1,0 +1,415 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Financial Analysis | Horizon Financial{% endblock %}
+
+{% block extra_head %}
+<link href="https://cdn01.boxcdn.net/platform/preview/2.106.0/en-US/preview.css" rel="stylesheet" type="text/css">
+<style>
+    .preview-container {
+        border: 1px solid #eee;
+        height: 700px; /* Adjust height as needed */
+        width: 100%;
+        min-height: 600px; /* Add minimum height */
+        background-color: #f5f5f5;
+    }
+    .status-message {
+        padding: 15px;
+        margin-bottom: 20px;
+        border-radius: 5px;
+    }
+    .status-loading {
+        background-color: #eef2f7;
+        color: #34495e;
+    }
+    .status-error {
+        background-color: #fbebeb;
+        color: #c0392b;
+    }
+    /* Enhanced styling for better presentation */
+    .financial-summary-title {
+        color: #2c5282;
+        margin-bottom: 1.5rem;
+    }
+    .action-button {
+        transition: all 0.2s;
+        box-shadow: 0 4px 6px rgba(50, 50, 93, 0.11), 0 1px 3px rgba(0, 0, 0, 0.08);
+    }
+    .action-button:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 7px 14px rgba(50, 50, 93, 0.1), 0 3px 6px rgba(0, 0, 0, 0.08);
+    }
+    #debug-info {
+        margin-top: 20px;
+        padding: 10px;
+        background-color: #f8f9fa;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        font-family: monospace;
+        font-size: 12px;
+        display: block; /* Show by default for debugging */
+        max-height: 300px;
+        overflow-y: auto;
+        white-space: pre-wrap; /* Ensure newlines are respected */
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="max-w-4xl mx-auto pt-10 pb-12 px-4">
+    <div class="text-center mb-8">
+        <h1 class="text-3xl font-bold financial-summary-title">Financial Analysis</h1>
+        <p class="text-gray-600">View your comprehensive financial summary generated with Box AI</p>
+    </div>
+
+    <div id="preview-status" class="status-message status-loading text-center">
+        <div class="flex items-center justify-center">
+            <svg class="animate-spin h-5 w-5 mr-3 text-blue-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 714 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+            <span>Loading financial summary preview...</span>
+        </div>
+    </div>
+
+    <div id="summary-preview-container" class="preview-container bg-gray-100 rounded-lg shadow-md">
+        <!-- Box Content Preview will be embedded here -->
+    </div>
+
+    {% if not summary_file_id %}
+    <div id="no-summary-message" class="text-center py-8">
+        <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-6 max-w-md mx-auto">
+            <div class="flex items-center justify-center w-12 h-12 mx-auto mb-4 bg-yellow-100 rounded-full">
+                <svg class="w-6 h-6 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z"></path>
+                </svg>
+            </div>
+            <h3 class="text-lg font-semibold text-yellow-800 mb-2">No Financial Summary Available</h3>
+            <p class="text-yellow-700 mb-4">Please upload and process your financial documents first to generate a summary.</p>
+            <a href="{% url 'document_upload' %}" class="inline-block bg-yellow-600 hover:bg-yellow-700 text-white font-semibold py-2 px-4 rounded transition duration-150 ease-in-out">
+                Upload Documents
+            </a>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Debug information panel -->
+    <div id="debug-info"></div>
+
+    <div class="mt-8 text-center flex justify-center space-x-4">
+        <a href="{% url 'document_upload' %}" class="action-button bg-horizon-primary hover:bg-horizon-primary-dark text-white font-semibold py-2 px-6 rounded-lg shadow transition duration-150 ease-in-out">
+            Back to Document Upload
+        </a>
+        
+        <button id="retry-button" class="action-button bg-green-600 hover:bg-green-700 text-white font-semibold py-2 px-6 rounded-lg shadow transition duration-150 ease-in-out" style="display: none;">
+            Retry Loading Preview
+        </button>
+        
+        <!-- Debug button -->
+        <button id="toggle-debug" class="text-sm text-gray-500 hover:text-gray-700">
+            Toggle Debug Info
+        </button>
+    </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<!-- Box Content Preview SDK - Using the standalone SDK instead of UI Elements -->
+<script src="https://cdn01.boxcdn.net/platform/preview/2.106.0/en-US/preview.js"></script>
+
+<script>
+    console.log("SCRIPT_STEP_0_FULL_HTML: Main script block starting.");
+
+    const debugInfoDiv = document.getElementById('debug-info');
+    
+    function addDebugInfo(message) {
+        const logMessage = `[DEBUG] ${new Date().toLocaleTimeString()}: ${message}`;
+        console.log(logMessage); 
+        if (debugInfoDiv) {
+            debugInfoDiv.innerHTML += `${logMessage}\n`;
+            debugInfoDiv.scrollTop = debugInfoDiv.scrollHeight;
+        }
+    }
+    
+    addDebugInfo("SCRIPT_STEP_1_FULL_HTML: Script initialized. Basic logging is active.");
+
+    addDebugInfo("TEST_MESSAGE_2_FULL_HTML: SummaryFileId (raw from Django): {{ summary_file_id|default:'' }}");
+    addDebugInfo("TEST_MESSAGE_3_FULL_HTML: FolderId (raw from Django): {{ folder_id|default:'' }}");
+    
+    const summaryFileIdRaw = "{{ summary_file_id|default:'' }}";
+    addDebugInfo("TEST_MESSAGE_4_FULL_HTML: summaryFileIdRaw JS var: " + summaryFileIdRaw);
+    
+    const summaryFileId = summaryFileIdRaw.trim();
+    addDebugInfo("INCREMENTAL_TEST_FULL_HTML: summaryFileId (trimmed): " + summaryFileId);
+
+    addDebugInfo("BOX_LOGIC_STEP_0: Defining UI element variables.");
+    const folderId = "{{ folder_id|default:'' }}";
+    let previewContainer, statusDiv, noSummaryMessageDiv, retryButton, toggleDebugButton;
+
+    // Wait for DOM to be ready
+    document.addEventListener('DOMContentLoaded', function() {
+        addDebugInfo("BOX_LOGIC_STEP_DOM_LOADED: Initializing DOM-dependent variables and listeners.");
+        previewContainer = document.getElementById('summary-preview-container');
+        statusDiv = document.getElementById('preview-status');
+        noSummaryMessageDiv = document.getElementById('no-summary-message');
+        retryButton = document.getElementById('retry-button');
+        toggleDebugButton = document.getElementById('toggle-debug');
+
+        addDebugInfo(`BOX_LOGIC_STEP_1_DOM_LOADED: summaryFileId (trimmed): '${summaryFileId}', folderId: '${folderId}'`);
+        addDebugInfo(`BOX_LOGIC_STEP_2_DOM_LOADED: previewContainer found: ${!!previewContainer}`);
+        addDebugInfo(`BOX_LOGIC_STEP_3_DOM_LOADED: statusDiv found: ${!!statusDiv}`);
+        addDebugInfo(`BOX_LOGIC_STEP_4_DOM_LOADED: noSummaryMessageDiv found: ${!!noSummaryMessageDiv}`);
+        addDebugInfo(`BOX_LOGIC_STEP_5_DOM_LOADED: retryButton found: ${!!retryButton}`);
+        addDebugInfo(`BOX_LOGIC_STEP_6_DOM_LOADED: toggleDebugButton found: ${!!toggleDebugButton}`);
+
+        // Set up event listeners
+        if(toggleDebugButton) {
+            toggleDebugButton.addEventListener('click', function() {
+                const currentDebugInfoDiv = document.getElementById('debug-info');
+                if (currentDebugInfoDiv) {
+                    currentDebugInfoDiv.style.display = currentDebugInfoDiv.style.display === 'none' ? 'block' : 'none';
+                    addDebugInfo(`Debug panel display toggled to: ${currentDebugInfoDiv.style.display}`);
+                }
+            });
+        }
+
+        if(retryButton) {
+            retryButton.addEventListener('click', function() {
+                addDebugInfo("Retry button clicked. Reloading preview with fileId: " + currentFileId);
+                if (currentFileId) {
+                    loadPreview(currentFileId);
+                } else {
+                    addDebugInfo("Retry button: No currentFileId to retry with. Attempting with summaryFileId: " + summaryFileId);
+                    if (summaryFileId) loadPreview(summaryFileId);
+                }
+            });
+        }
+        
+        // Initial call to loadPreview if summaryFileId exists
+        addDebugInfo(`BOX_LOGIC_STEP_8_DOM_LOADED: Page setup complete. summaryFileId (trimmed): '${summaryFileId}'. Checking if it's valid to load preview.`);
+        if (summaryFileId) {
+            addDebugInfo(`BOX_LOGIC_STEP_9_DOM_LOADED: Valid summaryFileId ('${summaryFileId}') exists. Calling loadPreview.`);
+            if (noSummaryMessageDiv) noSummaryMessageDiv.style.display = 'none';
+            loadPreview(summaryFileId);
+        } else {
+            addDebugInfo("BOX_LOGIC_STEP_9_ALT_DOM_LOADED: No valid summaryFileId provided. Preview will not load.");
+            if (statusDiv) { 
+                statusDiv.innerHTML = 'No summary document ID available to display.'; 
+                statusDiv.className = 'status-message status-error'; 
+            }
+            if (previewContainer) previewContainer.style.display = 'none';
+            if (noSummaryMessageDiv) noSummaryMessageDiv.style.display = 'block';
+            if (retryButton) retryButton.style.display = 'none'; 
+        }
+    });
+
+    let previewLoaded = false; 
+    let currentToken = null;   
+    let currentFileId = null;  
+    let loadingTimeout = null; 
+
+    function initializePreview(fileIdToPreview, accessTokenToUse) {
+        addDebugInfo(`initializePreview: Called for File ID: ${fileIdToPreview}. Token (first 10): ${accessTokenToUse ? accessTokenToUse.substring(0,10)+'...' : 'N/A'}`);
+        addDebugInfo(`initializePreview: SDK State Check - typeof Box: ${typeof Box}, typeof Box.Preview: ${typeof Box.Preview}`);
+        
+        if (!previewContainer) {
+            addDebugInfo("initializePreview: CRITICAL - previewContainer DOM element is null!");
+            return;
+        }
+
+        if (typeof Box === 'undefined' || typeof Box.Preview === 'undefined') {
+            addDebugInfo(`initializePreview: ERROR - Box SDK or Box.Preview is not available. typeof Box: ${typeof Box}, typeof Box.Preview: ${typeof Box.Preview}`);
+            
+            // Let's also check what properties are available on the Box object
+            if (typeof Box !== 'undefined') {
+                addDebugInfo(`initializePreview: Box object properties: ${Object.keys(Box).join(', ')}`);
+            }
+            
+            if (statusDiv) { 
+                statusDiv.innerHTML = 'Error: Box Preview SDK not loaded properly. Try refreshing the page.'; 
+                statusDiv.className = 'status-message status-error'; 
+            }
+            if (retryButton) retryButton.style.display = 'inline-block';
+            return;
+        }
+
+        addDebugInfo("initializePreview: Attempting to create Box.Preview object.");
+        try {
+            const preview = new Box.Preview();
+
+            // Add multiple event listeners to catch different load states
+            preview.addListener('load', function(data) {
+                addDebugInfo(`Box Preview 'load' event fired for fileId: ${data.file ? data.file.id : 'unknown'}`);
+                previewLoaded = true;
+                if(loadingTimeout) clearTimeout(loadingTimeout);
+                if (statusDiv) statusDiv.style.display = 'none';
+                if (previewContainer) previewContainer.style.display = 'block';
+                if (retryButton) retryButton.style.display = 'none';
+            });
+
+            preview.addListener('viewer', function(viewer) {
+                addDebugInfo(`Box Preview 'viewer' event fired. Viewer type: ${viewer ? viewer.constructor.name : 'unknown'}`);
+                previewLoaded = true;
+                if(loadingTimeout) clearTimeout(loadingTimeout);
+                if (statusDiv) statusDiv.style.display = 'none';
+                if (previewContainer) previewContainer.style.display = 'block';
+                if (retryButton) retryButton.style.display = 'none';
+            });
+
+            preview.addListener('error', function(error) {
+                addDebugInfo(`Box Preview error: ${JSON.stringify(error)}`);
+                previewLoaded = false;
+                if(loadingTimeout) clearTimeout(loadingTimeout);
+                if (statusDiv) { 
+                    statusDiv.innerHTML = `Error loading preview: ${error.message || 'Unknown Box Preview error'}. Please try refreshing the page.`; 
+                    statusDiv.className = 'status-message status-error'; 
+                    statusDiv.style.display = 'block'; 
+                }
+                if (previewContainer) previewContainer.style.display = 'none';
+                if (retryButton) retryButton.style.display = 'inline-block';
+            });
+
+            addDebugInfo(`initializePreview: Calling preview.show() for fileId: ${fileIdToPreview}`);
+            preview.show(fileIdToPreview, accessTokenToUse, {
+                container: previewContainer,
+                showDownload: true,
+                logoUrl: "{% static 'images/Horizon_Logo.png' %}"
+            });
+            addDebugInfo("initializePreview: preview.show() called successfully.");
+
+            // Set a longer timeout to allow the preview to load
+            setTimeout(() => {
+                if (!previewLoaded) {
+                    addDebugInfo("initializePreview: Preview hasn't fired load/viewer events yet, but may still be loading. Hiding status message.");
+                    // Hide the loading message even if events haven't fired - the preview might still be working
+                    if (statusDiv) statusDiv.style.display = 'none';
+                    if (previewContainer) previewContainer.style.display = 'block';
+                }
+            }, 3000); // Give it 3 seconds to load
+        
+        } catch (e) {
+            addDebugInfo(`initializePreview: Error during preview initialization: ${e.message}`);
+            if (statusDiv) { 
+                statusDiv.innerHTML = `Critical error initializing preview: ${e.message}`; 
+                statusDiv.className = 'status-message status-error'; 
+                statusDiv.style.display = 'block'; 
+            }
+            if (previewContainer) previewContainer.style.display = 'none';
+            if (retryButton) retryButton.style.display = 'inline-block';
+            if(loadingTimeout) clearTimeout(loadingTimeout);
+        }
+    }
+    
+    function fetchPreviewToken(fileIdToFetch) { 
+        addDebugInfo(`fetchPreviewToken: Called for File ID: ${fileIdToFetch}. Attempting to fetch token from /api/box/preview-token/.`);
+        return fetch(`/api/box/preview-token/?file_id=${fileIdToFetch}`)
+            .then(response => {
+                addDebugInfo(`fetchPreviewToken: Response status: ${response.status}`);
+                if (!response.ok) {
+                    return response.json().then(errData => {
+                        addDebugInfo(`fetchPreviewToken: Error response from server: ${JSON.stringify(errData)}`);
+                        throw new Error(`Server error ${response.status}: ${errData.error || 'Failed to fetch token'}`);
+                    }).catch(() => {
+                        addDebugInfo(`fetchPreviewToken: Error response from server (non-JSON): ${response.statusText}`);
+                        throw new Error(`Server error ${response.status}: ${response.statusText || 'Failed to fetch token'}`);
+                    });
+                }
+                return response.json();
+            })
+            .then(data => {
+                addDebugInfo(`fetchPreviewToken: Token received: ${data.access_token ? data.access_token.substring(0,10)+'...' : 'N/A'}, File ID: ${data.file_id}`);
+                if (data.error) {
+                    addDebugInfo(`fetchPreviewToken: Server returned an error in JSON: ${data.error}`);
+                    throw new Error(data.error);
+                }
+                if (!data.access_token || !data.file_id) {
+                    addDebugInfo(`fetchPreviewToken: Invalid token data received: ${JSON.stringify(data)}`);
+                    throw new Error('Invalid token data received from server.');
+                }
+                return data;
+            });
+    }
+    
+    function loadPreview(fileIdToLoad) {
+        addDebugInfo(`loadPreview: Called with fileId: '${fileIdToLoad}'.`);
+
+        if (!fileIdToLoad) {
+            addDebugInfo("loadPreview: fileIdToLoad is empty or null. Aborting.");
+            if(statusDiv) { 
+                statusDiv.innerHTML = "Error: No File ID for preview."; 
+                statusDiv.className = 'status-message status-error'; 
+            }
+            if(retryButton) retryButton.style.display = 'inline-block';
+            return;
+        }
+
+        // Initial UI setup
+        if (statusDiv) { 
+            statusDiv.innerHTML = '<div class="flex items-center justify-center"><svg class="animate-spin h-5 w-5 mr-3 text-blue-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 718-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 714 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg><span>Loading financial summary preview...</span></div>';
+            statusDiv.className = 'status-message status-loading'; 
+            statusDiv.style.display = 'block';
+        }
+        if (previewContainer) previewContainer.style.display = 'block';
+        if (retryButton) retryButton.style.display = 'none';
+        previewLoaded = false;
+        currentFileId = fileIdToLoad;
+
+        // Remove the auto-fallback timeout - let the Box Preview work
+        if(loadingTimeout) clearTimeout(loadingTimeout);
+
+        // Check if Box SDK is available
+        const MAX_POLL_ATTEMPTS = 20; // 20 attempts * 250ms = 5 seconds for polling
+        const POLL_INTERVAL_MS = 250;
+        let pollAttempts = 0;
+
+        function checkSDKAndProceed() {
+            pollAttempts++;
+            addDebugInfo(`loadPreview (checkSDKAndProceed): Polling attempt ${pollAttempts}/${MAX_POLL_ATTEMPTS}. typeof Box: ${typeof Box}, typeof Box.Preview: ${typeof Box.Preview}`);
+            
+            if (typeof Box !== 'undefined' && typeof Box.Preview !== 'undefined') {
+                addDebugInfo(`loadPreview (checkSDKAndProceed): Box.Preview IS NOW available. Proceeding with token fetch and preview initialization.`);
+                
+                if (statusDiv) {
+                     statusDiv.innerHTML = '<div class="flex items-center justify-center"><svg class="animate-spin h-5 w-5 mr-3 text-blue-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 818-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 714 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg><span>Fetching preview token...</span></div>';
+                }
+
+                fetchPreviewToken(fileIdToLoad)
+                    .then(data => {
+                        addDebugInfo(`loadPreview (checkSDKAndProceed): fetchPreviewToken successful. Will call initializePreview.`);
+                        currentToken = data.access_token;
+                        initializePreview(data.file_id, data.access_token);
+                    })
+                    .catch(error => {
+                        addDebugInfo(`loadPreview (checkSDKAndProceed): Error during fetchPreviewToken: ${error.message}`);
+                        if (statusDiv) { 
+                            statusDiv.innerHTML = `Error fetching preview token: ${error.message}. Please try again.`; 
+                            statusDiv.className = 'status-message status-error'; 
+                            statusDiv.style.display = 'block'; 
+                        }
+                        if (previewContainer) previewContainer.style.display = 'none';
+                        if (retryButton) retryButton.style.display = 'inline-block';
+                    });
+
+            } else {
+                if (pollAttempts < MAX_POLL_ATTEMPTS) {
+                    setTimeout(checkSDKAndProceed, POLL_INTERVAL_MS);
+                } else {
+                    addDebugInfo(`loadPreview (checkSDKAndProceed): ERROR - Box.Preview did not become available after ${MAX_POLL_ATTEMPTS} attempts. typeof Box: ${typeof Box}, typeof Box.Preview: ${typeof Box.Preview}`);
+                    
+                    if(statusDiv) { 
+                        statusDiv.innerHTML = "Error: Box SDK components (Preview module) failed to load. Please refresh the page."; 
+                        statusDiv.className = 'status-message status-error'; 
+                    }
+                    if(previewContainer) previewContainer.style.display = 'none';
+                    if(retryButton) retryButton.style.display = 'inline-block';
+                }
+            }
+        }
+        
+        // Start the polling
+        checkSDKAndProceed();
+    }
+
+</script>
+{% endblock %} 

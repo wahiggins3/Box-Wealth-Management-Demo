@@ -1,0 +1,221 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Horizon Financial Portal{% endblock %}</title>
+    
+    <!-- Tailwind CSS from CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+          theme: {
+            extend: {
+              colors: {
+                'horizon-primary': '#122f42', // Navy blue primary color
+                'horizon-secondary': '#0e2535', // Slightly darker shade of primary for hover states
+                'horizon-accent': '#dea42f', // Golden accent color
+              }
+            }
+          }
+        }
+    </script>
+
+    <!-- Box UI Elements CSS -->
+    <link rel="stylesheet" href="https://cdn01.boxcdn.net/platform/elements/23.0.0/en-US/explorer.css" />
+
+    <!-- Override the style.css with our custom styles -->
+    <style>
+        nav {
+            background-color: transparent !important;
+        }
+        /* Dropdown styling */
+        .dropdown-menu {
+            display: none;
+        }
+        .dropdown-menu.show {
+            display: block;
+        }
+    </style>
+
+    <!-- Your existing CSS -->
+    <link rel="stylesheet" href="{% static 'style.css' %}">
+    
+    {% block extra_head %}{% endblock %}
+</head>
+<body class="bg-gray-50">
+    <header class="bg-horizon-primary shadow-lg w-full">
+        <div class="container mx-auto px-4 py-3 flex items-center justify-between">
+            <a href="{% url 'index' %}" class="flex items-center space-x-2">
+                <img src="{% static 'images/Horizon_Logo.png' %}" alt="Horizon Financial" class="h-10">
+            </a>
+            
+            <!-- Main Navigation Tabs -->
+            <nav class="hidden md:block flex-grow mx-10 bg-horizon-primary" style="background-color: #122f42 !important; padding: 0;">
+                <ul class="flex justify-center space-x-8">
+                    <li><a href="{% url 'index' %}" class="text-white hover:text-horizon-accent py-2 border-b-2 {% if request.path == '/' %}border-horizon-accent text-horizon-accent{% else %}border-transparent{% endif %}">Summary</a></li>
+                    <li><a href="{% url 'accounts' %}" class="text-white hover:text-horizon-accent py-2 border-b-2 {% if '/accounts/' in request.path %}border-horizon-accent text-horizon-accent{% else %}border-transparent{% endif %}">Accounts</a></li>
+                    <li><a href="{% url 'documents' %}" class="text-white hover:text-horizon-accent py-2 border-b-2 {% if '/documents/' in request.path %}border-horizon-accent text-horizon-accent{% else %}border-transparent{% endif %}">Documents</a></li>
+                    <li><a href="{% url 'products' %}" class="text-white hover:text-horizon-accent py-2 border-b-2 {% if '/products/' in request.path %}border-horizon-accent text-horizon-accent{% else %}border-transparent{% endif %}">Products</a></li>
+                    <li><a href="{% url 'support' %}" class="text-white hover:text-horizon-accent py-2 border-b-2 {% if '/support/' in request.path %}border-horizon-accent text-horizon-accent{% else %}border-transparent{% endif %}">Support</a></li>
+                </ul>
+            </nav>
+
+            <!-- User Menu (right side) -->
+            <div class="flex items-center">
+                {% if user.is_authenticated %}
+                    <!-- Actions Icon with Dropdown -->
+                    <div class="relative mr-4 dropdown">
+                        <button id="actions-btn" class="flex items-center text-white hover:text-horizon-accent focus:outline-none relative">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z" />
+                            </svg>
+                            <!-- Notification Badge - Replace '2' with actual count from backend -->
+                            <span class="absolute -top-2 -right-2 h-5 w-5 rounded-full bg-horizon-accent text-xs text-horizon-primary font-bold flex items-center justify-center">2</span>
+                        </button>
+                        <div class="absolute right-0 mt-2 w-64 bg-white rounded-md shadow-lg py-1 z-10 dropdown-menu" id="action-menu">
+                            <div class="px-4 py-2 text-sm font-semibold text-gray-700 border-b border-gray-200">
+                                Pending Actions
+                            </div>
+                            <a href="{% url 'wealth_onboarding' %}" class="block px-4 py-3 text-sm text-gray-700 hover:bg-gray-100 border-b border-gray-100">
+                                <div class="font-medium">Complete Wealth Management Onboarding</div>
+                                <div class="text-xs text-gray-500">Wealth management service pending additional information</div>
+                            </a>
+                            <a href="#" class="block px-4 py-3 text-sm text-gray-700 hover:bg-gray-100">
+                                <div class="font-medium">Document Request</div>
+                                <div class="text-xs text-gray-500">Please upload your latest tax statement</div>
+                            </a>
+                            <div class="px-4 py-2 text-center">
+                                <a href="#" class="text-xs text-horizon-primary hover:text-horizon-accent">View All Actions</a>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- User Profile Dropdown -->
+                    <div class="relative dropdown">
+                        <button id="profile-btn" class="flex items-center text-white hover:text-horizon-accent focus:outline-none">
+                            <div class="h-8 w-8 rounded-full bg-horizon-secondary text-white flex items-center justify-center mr-2 border border-horizon-accent">
+                                {{ user.username|first|upper }}
+                            </div>
+                            <span class="hidden sm:inline-block">{{ user.username }}</span>
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 ml-1" viewBox="0 0 20 20" fill="currentColor">
+                                <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
+                            </svg>
+                        </button>
+                        <div class="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg py-1 z-10 dropdown-menu" id="user-menu">
+                            <a href="{% url 'profile' %}" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">Profile</a>
+                            <a href="{% url 'logout' %}" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">Logout</a>
+                        </div>
+                    </div>
+                {% else %}
+                    <div class="space-x-2">
+                        <a href="{% url 'login' %}" class="py-2 px-4 text-white hover:text-horizon-accent">Login</a>
+                        <a href="{% url 'register' %}" class="py-2 px-4 bg-horizon-accent text-horizon-primary font-medium rounded hover:bg-opacity-90 transition-all">Register</a>
+                    </div>
+                {% endif %}
+
+                <!-- Mobile menu button -->
+                <button type="button" class="md:hidden ml-2 text-white focus:outline-none" id="mobile-menu-button">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
+                    </svg>
+                </button>
+            </div>
+        </div>
+        
+        <!-- Mobile Navigation Menu (hidden by default) -->
+        <div class="hidden md:hidden" id="mobile-menu">
+            <div class="px-4 pt-2 pb-3 space-y-1 bg-horizon-secondary">
+                <a href="{% url 'index' %}" class="block py-2 px-4 text-base {% if request.path == '/' %}text-horizon-accent font-medium{% else %}text-white{% endif %}">Summary</a>
+                <a href="{% url 'accounts' %}" class="block py-2 px-4 text-base {% if '/accounts/' in request.path %}text-horizon-accent font-medium{% else %}text-white{% endif %}">Accounts</a>
+                <a href="{% url 'documents' %}" class="block py-2 px-4 text-base {% if '/documents/' in request.path %}text-horizon-accent font-medium{% else %}text-white{% endif %}">Documents</a>
+                <a href="{% url 'products' %}" class="block py-2 px-4 text-base {% if '/products/' in request.path %}text-horizon-accent font-medium{% else %}text-white{% endif %}">Products</a>
+                <a href="{% url 'support' %}" class="block py-2 px-4 text-base {% if '/support/' in request.path %}text-horizon-accent font-medium{% else %}text-white{% endif %}">Support</a>
+                {% if user.is_authenticated %}
+                    <div class="border-t border-horizon-primary mt-2 pt-2">
+                        <a href="{% url 'wealth_onboarding' %}" class="block py-2 px-4 text-base text-white hover:text-horizon-accent">Actions (2)</a>
+                        <a href="{% url 'profile' %}" class="block py-2 px-4 text-base text-white hover:text-horizon-accent">Profile</a>
+                        <a href="{% url 'logout' %}" class="block py-2 px-4 text-base text-white hover:text-horizon-accent">Logout</a>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </header>
+
+    <main class="container mx-auto px-4 py-8">
+        {% block content %}{% endblock %}
+    </main>
+
+    <footer class="bg-horizon-primary text-white py-6">
+        <div class="container mx-auto px-4">
+            <p class="text-center">&copy; 2024 Horizon Financial Services</p>
+        </div>
+    </footer>
+
+    {% block scripts %}{% endblock %}
+    
+    <!-- Box UI Elements JS -->
+    <script src="https://cdn01.boxcdn.net/platform/elements/23.0.0/en-US/explorer.js"></script>
+    
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // Mobile menu toggle
+            document.getElementById('mobile-menu-button').addEventListener('click', function() {
+                document.getElementById('mobile-menu').classList.toggle('hidden');
+            });
+            
+            // Handle dropdown toggles
+            const profileBtn = document.getElementById('profile-btn');
+            const actionsBtn = document.getElementById('actions-btn');
+            const userMenu = document.getElementById('user-menu');
+            const actionMenu = document.getElementById('action-menu');
+            
+            // Function to close all dropdowns
+            function closeDropdowns() {
+                const dropdowns = document.querySelectorAll('.dropdown-menu');
+                dropdowns.forEach(menu => menu.classList.remove('show'));
+            }
+            
+            // Profile button click handler
+            if (profileBtn) {
+                profileBtn.addEventListener('click', function(e) {
+                    e.stopPropagation();
+                    
+                    // Close other dropdowns
+                    if (actionMenu) actionMenu.classList.remove('show');
+                    
+                    // Toggle user menu
+                    userMenu.classList.toggle('show');
+                });
+            }
+            
+            // Actions button click handler
+            if (actionsBtn) {
+                actionsBtn.addEventListener('click', function(e) {
+                    e.stopPropagation();
+                    
+                    // Close other dropdowns
+                    if (userMenu) userMenu.classList.remove('show');
+                    
+                    // Toggle action menu
+                    actionMenu.classList.toggle('show');
+                });
+            }
+            
+            // Close dropdowns when clicking outside
+            document.addEventListener('click', function() {
+                closeDropdowns();
+            });
+            
+            // Prevent clicks inside dropdowns from closing them
+            const dropdownMenus = document.querySelectorAll('.dropdown-menu');
+            dropdownMenus.forEach(menu => {
+                menu.addEventListener('click', function(e) {
+                    e.stopPropagation();
+                });
+            });
+        });
+    </script>
+</body>
+</html> 

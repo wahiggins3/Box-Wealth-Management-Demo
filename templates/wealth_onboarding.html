@@ -1,0 +1,266 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Wealth Management Onboarding | Horizon Financial{% endblock %}
+
+{% block content %}
+<div class="mb-8">
+    <h1 class="text-3xl font-bold text-gray-800 mb-2">Wealth Management Onboarding</h1>
+    <p class="text-gray-600">Complete your onboarding process for wealth management services.</p>
+</div>
+
+{% if user.is_authenticated %}
+    {% if success_message %}
+        <div class="bg-green-100 border-l-4 border-green-500 text-green-700 p-4 mb-6" role="alert">
+            <p class="font-bold">Success</p>
+            <p>{{ success_message }}</p>
+        </div>
+    {% endif %}
+    
+    <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+        <div class="flex justify-between items-center mb-4">
+            <h2 class="text-xl font-semibold">Personal Information</h2>
+            <button type="button" id="autofill-btn" class="bg-horizon-primary text-white py-1 px-3 rounded text-sm hover:bg-horizon-secondary transition-all">
+                Autofill Form
+            </button>
+        </div>
+        <form method="post" action="{% url 'wealth_onboarding' %}" class="space-y-6">
+            {% csrf_token %}
+            
+            <!-- Personal Information Section -->
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                    <label for="full_name" class="block text-sm font-medium text-gray-700 mb-1">Full Name</label>
+                    <input type="text" id="full_name" name="full_name" value="{% if onboarding_info %}{{ onboarding_info.full_name }}{% else %}{{ user.get_full_name }}{% endif %}" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-horizon-primary focus:border-horizon-primary">
+                </div>
+                <div>
+                    <label for="email" class="block text-sm font-medium text-gray-700 mb-1">Email Address</label>
+                    <input type="email" id="email" name="email" value="{% if onboarding_info %}{{ onboarding_info.email }}{% else %}{{ user.email }}{% endif %}" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-horizon-primary focus:border-horizon-primary">
+                </div>
+                <div>
+                    <label for="phone" class="block text-sm font-medium text-gray-700 mb-1">Phone Number</label>
+                    <input type="tel" id="phone" name="phone" value="{% if onboarding_info %}{{ onboarding_info.phone }}{% endif %}" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-horizon-primary focus:border-horizon-primary">
+                </div>
+                <div>
+                    <label for="birth_date" class="block text-sm font-medium text-gray-700 mb-1">Date of Birth</label>
+                    <input type="date" id="birth_date" name="birth_date" value="{% if onboarding_info and onboarding_info.birth_date %}{{ onboarding_info.birth_date|date:'Y-m-d' }}{% endif %}" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-horizon-primary focus:border-horizon-primary">
+                </div>
+            </div>
+            
+            <hr class="my-6">
+            
+            <!-- Address Information Section -->
+            <h2 class="text-xl font-semibold mb-4">Address Information</h2>
+            <div class="bg-blue-50 border-l-4 border-horizon-primary text-horizon-primary p-4 mb-6">
+                <p class="font-bold">Address Verification</p>
+                <p>This address will be used to verify the addresses found in your uploaded documents. Please ensure it matches the address on your financial documents.</p>
+            </div>
+            
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div class="md:col-span-2">
+                    <label for="street_address" class="block text-sm font-medium text-gray-700 mb-1">Street Address</label>
+                    <input type="text" id="street_address" name="street_address" placeholder="123 Main St, Apt 4B" value="{% if onboarding_info %}{{ onboarding_info.street_address }}{% endif %}" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-horizon-primary focus:border-horizon-primary">
+                </div>
+                <div>
+                    <label for="city" class="block text-sm font-medium text-gray-700 mb-1">City</label>
+                    <input type="text" id="city" name="city" placeholder="New York" value="{% if onboarding_info %}{{ onboarding_info.city }}{% endif %}" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-horizon-primary focus:border-horizon-primary">
+                </div>
+                <div>
+                    <label for="state_province" class="block text-sm font-medium text-gray-700 mb-1">State/Province</label>
+                    <input type="text" id="state_province" name="state_province" placeholder="NY" maxlength="50" value="{% if onboarding_info %}{{ onboarding_info.state_province }}{% endif %}" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-horizon-primary focus:border-horizon-primary">
+                </div>
+                <div>
+                    <label for="postal_code" class="block text-sm font-medium text-gray-700 mb-1">ZIP/Postal Code</label>
+                    <input type="text" id="postal_code" name="postal_code" placeholder="10001" value="{% if onboarding_info %}{{ onboarding_info.postal_code }}{% endif %}" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-horizon-primary focus:border-horizon-primary">
+                </div>
+                <div>
+                    <label for="country" class="block text-sm font-medium text-gray-700 mb-1">Country</label>
+                    <input type="text" id="country" name="country" value="{% if onboarding_info %}{{ onboarding_info.country }}{% else %}USA{% endif %}" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-horizon-primary focus:border-horizon-primary">
+                </div>
+            </div>
+            
+            <hr class="my-6">
+            
+            <!-- Financial Goals Section -->
+            <h2 class="text-xl font-semibold mb-4">Financial Goals and Preferences</h2>
+            
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                    <label for="retirement_age" class="block text-sm font-medium text-gray-700 mb-1">Target Retirement Age</label>
+                    <input type="number" id="retirement_age" name="retirement_age" min="45" max="90" placeholder="65" value="{% if onboarding_info %}{{ onboarding_info.retirement_age }}{% endif %}" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-horizon-primary focus:border-horizon-primary">
+                </div>
+                <div>
+                    <label for="monthly_income" class="block text-sm font-medium text-gray-700 mb-1">Monthly Income (USD)</label>
+                    <input type="number" id="monthly_income" name="monthly_income" min="0" step="1000" placeholder="5000" value="{% if onboarding_info %}{{ onboarding_info.monthly_income }}{% endif %}" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-horizon-primary focus:border-horizon-primary">
+                </div>
+            </div>
+            
+            <div class="mt-4">
+                <label for="risk_tolerance" class="block text-sm font-medium text-gray-700 mb-2">Risk Tolerance</label>
+                <div class="flex flex-col space-y-2">
+                    <div class="flex items-center">
+                        <input type="radio" id="risk_conservative" name="risk_tolerance" value="conservative" class="h-4 w-4 text-horizon-primary focus:ring-horizon-primary">
+                        <label for="risk_conservative" class="ml-2 block text-sm text-gray-700">Conservative - Prefer stability with minimal risk</label>
+                    </div>
+                    <div class="flex items-center">
+                        <input type="radio" id="risk_moderate" name="risk_tolerance" value="moderate" class="h-4 w-4 text-horizon-primary focus:ring-horizon-primary">
+                        <label for="risk_moderate" class="ml-2 block text-sm text-gray-700">Moderate - Balance between growth and stability</label>
+                    </div>
+                    <div class="flex items-center">
+                        <input type="radio" id="risk_aggressive" name="risk_tolerance" value="aggressive" class="h-4 w-4 text-horizon-primary focus:ring-horizon-primary">
+                        <label for="risk_aggressive" class="ml-2 block text-sm text-gray-700">Aggressive - Prioritize growth, comfortable with volatility</label>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="mt-4">
+                <label for="investment_goals" class="block text-sm font-medium text-gray-700 mb-2">Investment Goals (Select all that apply)</label>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
+                    <div class="flex items-center">
+                        <input type="checkbox" id="goal_retirement" name="investment_goals" value="retirement" class="h-4 w-4 text-horizon-primary focus:ring-horizon-primary">
+                        <label for="goal_retirement" class="ml-2 block text-sm text-gray-700">Retirement Planning</label>
+                    </div>
+                    <div class="flex items-center">
+                        <input type="checkbox" id="goal_education" name="investment_goals" value="education" class="h-4 w-4 text-horizon-primary focus:ring-horizon-primary">
+                        <label for="goal_education" class="ml-2 block text-sm text-gray-700">Education Funding</label>
+                    </div>
+                    <div class="flex items-center">
+                        <input type="checkbox" id="goal_home" name="investment_goals" value="home" class="h-4 w-4 text-horizon-primary focus:ring-horizon-primary">
+                        <label for="goal_home" class="ml-2 block text-sm text-gray-700">Home Purchase</label>
+                    </div>
+                    <div class="flex items-center">
+                        <input type="checkbox" id="goal_wealth" name="investment_goals" value="wealth" class="h-4 w-4 text-horizon-primary focus:ring-horizon-primary">
+                        <label for="goal_wealth" class="ml-2 block text-sm text-gray-700">Wealth Accumulation</label>
+                    </div>
+                    <div class="flex items-center">
+                        <input type="checkbox" id="goal_tax" name="investment_goals" value="tax" class="h-4 w-4 text-horizon-primary focus:ring-horizon-primary">
+                        <label for="goal_tax" class="ml-2 block text-sm text-gray-700">Tax Optimization</label>
+                    </div>
+                    <div class="flex items-center">
+                        <input type="checkbox" id="goal_estate" name="investment_goals" value="estate" class="h-4 w-4 text-horizon-primary focus:ring-horizon-primary">
+                        <label for="goal_estate" class="ml-2 block text-sm text-gray-700">Estate Planning</label>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="mt-4">
+                <label for="investment_timeframe" class="block text-sm font-medium text-gray-700 mb-2">Investment Timeframe</label>
+                <select id="investment_timeframe" name="investment_timeframe" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-horizon-primary focus:border-horizon-primary">
+                    <option value="">Select an option</option>
+                    <option value="short">Short-term (0-3 years)</option>
+                    <option value="medium">Medium-term (3-10 years)</option>
+                    <option value="long">Long-term (10+ years)</option>
+                </select>
+            </div>
+            
+            <div class="mt-4">
+                <label for="investable_assets" class="block text-sm font-medium text-gray-700 mb-2">Total Investable Assets</label>
+                <select id="investable_assets" name="investable_assets" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-horizon-primary focus:border-horizon-primary">
+                    <option value="">Select an option</option>
+                    <option value="under100k">Under $100,000</option>
+                    <option value="100k-250k">$100,000 - $250,000</option>
+                    <option value="250k-500k">$250,000 - $500,000</option>
+                    <option value="500k-1m">$500,000 - $1,000,000</option>
+                    <option value="1m-5m">$1,000,000 - $5,000,000</option>
+                    <option value="over5m">Over $5,000,000</option>
+                </select>
+            </div>
+            
+            <hr class="my-6">
+            
+            <!-- Additional Information Section -->
+            <h2 class="text-xl font-semibold mb-4">Additional Information</h2>
+            
+            <div>
+                <label for="special_considerations" class="block text-sm font-medium text-gray-700 mb-1">Special Considerations or Questions</label>
+                <textarea id="special_considerations" name="special_considerations" rows="3" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-horizon-primary focus:border-horizon-primary">{% if onboarding_info %}{{ onboarding_info.special_considerations }}{% endif %}</textarea>
+            </div>
+            
+            <div class="flex items-center mt-4">
+                <input type="checkbox" id="term_agreement" name="term_agreement" required class="h-4 w-4 text-horizon-primary focus:ring-horizon-primary">
+                <label for="term_agreement" class="ml-2 block text-sm text-gray-700">I agree to the <a href="#" class="text-horizon-primary hover:underline">terms and conditions</a></label>
+            </div>
+            
+            <div class="mt-8 flex justify-end">
+                <button type="submit" class="bg-horizon-primary text-white py-2 px-6 rounded-md hover:bg-horizon-secondary transition-all">Submit Information</button>
+            </div>
+        </form>
+    </div>
+{% else %}
+    <div class="bg-white rounded-lg shadow-md p-8 text-center">
+        <div class="text-4xl text-gray-300 mb-4">🔒</div>
+        <h2 class="text-xl font-semibold mb-2">Please Log In</h2>
+        <p class="text-gray-600 mb-6">You need to be logged in to access the onboarding process.</p>
+        <a href="{% url 'login' %}" class="bg-horizon-primary text-white py-2 px-6 rounded-md hover:bg-horizon-secondary transition-all">Log In</a>
+    </div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const autofillBtn = document.getElementById('autofill-btn');
+        
+        if (autofillBtn) {
+            autofillBtn.addEventListener('click', function() {
+                // Preserve user name and email
+                const fullName = document.getElementById('full_name').value;
+                const email = document.getElementById('email').value;
+                
+                // Autofill form with generic data
+                
+                // Phone number
+                document.getElementById('phone').value = '(555) 123-4567';
+                
+                // Date of birth (set to January 1, 1980)
+                document.getElementById('birth_date').value = '1980-01-01';
+                
+                // Address information
+                document.getElementById('street_address').value = '123 Financial St, Apt 4B';
+                document.getElementById('city').value = 'New York';
+                document.getElementById('state_province').value = 'NY';
+                document.getElementById('postal_code').value = '10001';
+                document.getElementById('country').value = 'USA';
+                
+                // Target retirement age
+                document.getElementById('retirement_age').value = '65';
+                
+                // Monthly income
+                document.getElementById('monthly_income').value = '8000';
+                
+                // Risk tolerance (select Moderate)
+                document.getElementById('risk_moderate').checked = true;
+                
+                // Investment goals (check multiple options)
+                document.getElementById('goal_retirement').checked = true;
+                document.getElementById('goal_wealth').checked = true;
+                document.getElementById('goal_tax').checked = true;
+                
+                // Investment timeframe (select Long-term)
+                const timeframeSelect = document.getElementById('investment_timeframe');
+                timeframeSelect.value = 'long';
+                
+                // Investable assets (select $500k-$1M)
+                const assetsSelect = document.getElementById('investable_assets');
+                assetsSelect.value = '500k-1m';
+                
+                // Special considerations
+                document.getElementById('special_considerations').value = 'Interested in socially responsible investment options and tax optimization strategies.';
+                
+                // Terms agreement
+                document.getElementById('term_agreement').checked = true;
+                
+                // Restore preserved values
+                document.getElementById('full_name').value = fullName;
+                document.getElementById('email').value = email;
+                
+                // Visual feedback
+                autofillBtn.textContent = 'Form Autofilled';
+                setTimeout(() => {
+                    autofillBtn.textContent = 'Autofill Form';
+                }, 2000);
+            });
+        }
+    });
+</script>
+{% endblock %} 

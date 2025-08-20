@@ -1,0 +1,57 @@
+{% extends "index.html" %} <!-- Or a more generic base.html if you create one -->
+{% load static %}
+
+{% block content %} <!-- This assumes your index.html or base.html has a block named content -->
+<div style="width: 300px; margin: 50px auto; padding: 20px; border: 1px solid #ccc; border-radius: 5px;">
+    <h2>Login</h2>
+    {% if form.errors %}
+        <p style="color: red;">Your username and password didn't match. Please try again.</p>
+    {% endif %}
+
+    {% if next %}
+        {% if user.is_authenticated %}
+            <p>Your account doesn't have access to this page. To proceed,
+            please login with an account that has access.</p>
+        {% else %}
+            <p>Please login to see this page.</p>
+        {% endif %}
+    {% endif %}
+
+    <form method="post" action="{% url 'login' %}">
+        {% csrf_token %}
+        <table>
+            <tr>
+                <td>{{ form.username.label_tag }}</td>
+                <td>{{ form.username }}</td>
+            </tr>
+            <tr>
+                <td>{{ form.password.label_tag }}</td>
+                <td>{{ form.password }}</td>
+            </tr>
+        </table>
+        <input type="submit" value="Login" style="margin-top: 10px; padding: 5px 10px;">
+        <input type="hidden" name="next" value="{{ next }}">
+    </form>
+
+    {# Assumes you setup the password_reset view in your URLconf #}
+    <p style="margin-top: 15px;"><a href="{% url 'password_reset' %}">Lost password?</a></p>
+</div>
+
+<script>
+// Optional: Hide the main content sections from index.html if you are extending it.
+// This is a simple way if login is treated as a "state" on the main page.
+// A better approach for a dedicated login page is a simpler base template.
+document.addEventListener('DOMContentLoaded', function() {
+    document.querySelectorAll('.tab-content').forEach(function(section) {
+        section.style.display = 'none';
+    });
+    // If you have a specific element for the login form in index.html, hide it too,
+    // as this template provides its own form.
+    const mainLoginSection = document.getElementById('login-content');
+    if (mainLoginSection) {
+        mainLoginSection.style.display = 'none';
+    }
+});
+</script>
+
+{% endblock %} 

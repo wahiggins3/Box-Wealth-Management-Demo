@@ -1,0 +1,1036 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Upload Financial Documents | Horizon Financial{% endblock %}
+
+{% block extra_head %}
+<style>
+    .document-list li {
+        padding: 8px 0;
+    }
+    
+    .document-list li:before {
+        content: '•';
+        color: #122f42;
+        font-weight: bold;
+        display: inline-block;
+        width: 1em;
+        margin-left: -1em;
+    }
+    
+    .box-uploader {
+        height: 500px;
+        width: 100%;
+        border: 1px solid #e2e8f0;
+        border-radius: 0.375rem;
+    }
+
+    .document-card {
+        display: flex;
+        align-items: center;
+        height: 32px;
+        padding: 0 8px;
+    }
+    
+    .document-icon {
+        padding: 2px;
+        margin-right: 8px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+    
+    .document-icon svg {
+        height: 1rem;
+        width: 1rem;
+    }
+    
+    .document-cards-container {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 0.5rem;
+    }
+    
+    @media (max-width: 640px) {
+        .document-cards-container {
+            grid-template-columns: repeat(1, 1fr);
+        }
+    }
+    
+    /* Added styles for document card states */
+    .document-card-uploaded {
+        background-color: #f0fdf6 !important; /* Light green background */
+        border-color: #10b981 !important; /* Green border */
+    }
+    
+    .document-card-uploaded .document-icon {
+        background-color: #10b981 !important; /* Darker green icon */
+    }
+    
+    /* Removed checkmark
+    .document-card-uploaded::after {
+        content: '✓';
+        color: #10b981;
+        font-weight: bold;
+        margin-left: auto;
+    }
+    */
+    
+    /* Indicator for counts */
+    .document-count {
+        display: none;
+        background-color: #122f42;
+        color: white;
+        border-radius: 9999px;
+        width: 20px;
+        height: 20px;
+        font-size: 12px;
+        justify-content: center;
+        align-items: center;
+        margin-left: auto;
+    }
+    
+    .document-card-uploaded .document-count {
+        display: flex;
+        background-color: #10b981;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="mb-8">
+    <h1 class="text-3xl font-bold text-gray-800 mb-2">Document Upload</h1>
+    <p class="text-gray-600">Please provide financial documents to help your advisor get a complete picture of your financial situation.</p>
+</div>
+
+{% if user.is_authenticated %}
+    <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+        <div class="bg-blue-50 border-l-4 border-horizon-primary text-horizon-primary p-4 mb-6">
+            <p class="font-bold">Why we need your documents</p>
+            <p>Providing your financial documents helps your wealth advisor create a comprehensive financial plan tailored to your specific needs and goals. All documents are securely stored and encrypted.</p>
+        </div>
+        
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
+            <div class="md:col-span-1">
+                <h2 class="text-xl font-semibold mb-4">Requested Documents</h2>
+                <p class="text-gray-600 mb-4">Please provide any of the following documents that are applicable to your situation:</p>
+                
+                <div class="mb-6 document-cards-container">
+                    <div id="document-card-1099" class="bg-white rounded-lg border border-gray-200 shadow-sm hover:shadow-md transition-shadow" data-document-type="1099">
+                        <div class="document-card">
+                            <div class="bg-horizon-primary text-white rounded document-icon">
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                </svg>
+                            </div>
+                            <span class="text-sm text-gray-700">IRS Form 1099</span>
+                            <span class="document-count">0</span>
+                        </div>
+                    </div>
+
+                    <div id="document-card-w2" class="bg-white rounded-lg border border-gray-200 shadow-sm hover:shadow-md transition-shadow" data-document-type="W-2">
+                        <div class="document-card">
+                            <div class="bg-horizon-primary text-white rounded document-icon">
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                </svg>
+                            </div>
+                            <span class="text-sm text-gray-700">IRS Form W-2</span>
+                            <span class="document-count">0</span>
+                        </div>
+                    </div>
+
+                    <div id="document-card-account-statement" class="bg-white rounded-lg border border-gray-200 shadow-sm hover:shadow-md transition-shadow" data-document-type="Account Statement">
+                        <div class="document-card">
+                            <div class="bg-horizon-primary text-white rounded document-icon">
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                </svg>
+                            </div>
+                            <span class="text-sm text-gray-700">Account Statements</span>
+                            <span class="document-count">0</span>
+                        </div>
+                    </div>
+
+                    <div id="document-card-mortgage-statement" class="bg-white rounded-lg border border-gray-200 shadow-sm hover:shadow-md transition-shadow" data-document-type="Mortgage Statement">
+                        <div class="document-card">
+                            <div class="bg-horizon-primary text-white rounded document-icon">
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                </svg>
+                            </div>
+                            <span class="text-sm text-gray-700">Mortgage Statements</span>
+                            <span class="document-count">0</span>
+                        </div>
+                    </div>
+
+                    <div id="document-card-trust-document" class="bg-white rounded-lg border border-gray-200 shadow-sm hover:shadow-md transition-shadow" data-document-type="Trust Document">
+                        <div class="document-card">
+                            <div class="bg-horizon-primary text-white rounded document-icon">
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                </svg>
+                            </div>
+                            <span class="text-sm text-gray-700">Trust Documents</span>
+                            <span class="document-count">0</span>
+                        </div>
+                    </div>
+
+                    <div id="document-card-asset-list" class="bg-white rounded-lg border border-gray-200 shadow-sm hover:shadow-md transition-shadow" data-document-type="Asset List">
+                        <div class="document-card">
+                            <div class="bg-horizon-primary text-white rounded document-icon">
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                </svg>
+                            </div>
+                            <span class="text-sm text-gray-700">Asset Lists</span>
+                            <span class="document-count">0</span>
+                        </div>
+                    </div>
+
+                    <div id="document-card-1040" class="bg-white rounded-lg border border-gray-200 shadow-sm hover:shadow-md transition-shadow" data-document-type="1040">
+                        <div class="document-card">
+                            <div class="bg-horizon-primary text-white rounded document-icon">
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                </svg>
+                            </div>
+                            <span class="text-sm text-gray-700">IRS Form 1040</span>
+                            <span class="document-count">0</span>
+                        </div>
+                    </div>
+
+                    <div id="document-card-financial-statement" class="bg-white rounded-lg border border-gray-200 shadow-sm hover:shadow-md transition-shadow" data-document-type="Personal Financial Statement">
+                        <div class="document-card">
+                            <div class="bg-horizon-primary text-white rounded document-icon">
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                </svg>
+                            </div>
+                            <span class="text-sm text-gray-700">Financial Statements</span>
+                            <span class="document-count">0</span>
+                        </div>
+                    </div>
+
+                    <div id="document-card-insurance" class="bg-white rounded-lg border border-gray-200 shadow-sm hover:shadow-md transition-shadow" data-document-type="Life Insurance Document">
+                        <div class="document-card">
+                            <div class="bg-horizon-primary text-white rounded document-icon">
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                </svg>
+                            </div>
+                            <span class="text-sm text-gray-700">Insurance Documents</span>
+                            <span class="document-count">0</span>
+                        </div>
+                    </div>
+
+                    <div id="document-card-other" class="bg-white rounded-lg border border-gray-200 shadow-sm hover:shadow-md transition-shadow" data-document-type="Other">
+                        <div class="document-card">
+                            <div class="bg-horizon-primary text-white rounded document-icon">
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                </svg>
+                            </div>
+                            <span class="text-sm text-gray-700">Other Documents</span>
+                            <span class="document-count">0</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="bg-yellow-50 border-l-4 border-yellow-500 text-yellow-700 p-4">
+                    <p class="font-bold">Need assistance?</p>
+                    <p>If you're unsure which documents to upload or need help gathering them, please contact your advisor at <a href="mailto:support@horizonfinancial.com" class="text-horizon-primary hover:underline">support@horizonfinancial.com</a>.</p>
+                </div>
+            </div>
+            
+            <div class="md:col-span-2">
+                <h2 class="text-xl font-semibold mb-4">Upload Documents</h2>
+                <p class="text-gray-600 mb-4">Drag and drop files or click to browse your computer. You can upload multiple documents at once.</p>
+                
+                <!-- Box Content Uploader Container -->
+                <div id="box-uploader" class="box-uploader"></div>
+                
+                <!-- Uploaded Files List Container -->
+                <div id="uploaded-files-container" class="mt-6 hidden">
+                    <h3 class="text-lg font-semibold mb-2">Uploaded Files</h3>
+                    <div class="bg-gray-50 border border-gray-200 rounded-md p-4">
+                        <ul id="uploaded-files-list" class="divide-y divide-gray-200">
+                            <!-- Files will be populated here via JS -->
+                        </ul>
+                    </div>
+                </div>
+                
+                <!-- Address Mismatches Container -->
+                <div id="address-mismatches-container" class="mt-6 hidden">
+                    <h3 class="text-lg font-semibold mb-2 text-yellow-700">⚠️ Address Verification Required</h3>
+                    <div class="bg-yellow-50 border border-yellow-200 rounded-md p-4">
+                        <p class="text-sm text-yellow-700 mb-4">
+                            We found addresses in your uploaded documents that don't match your profile address. Please review the mismatches below and choose how to proceed.
+                        </p>
+                        <ul id="address-mismatches-list" class="space-y-4">
+                            <!-- Address mismatches will be populated here via JS -->
+                        </ul>
+                        <div class="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-md">
+                            <p class="text-sm text-blue-700">
+                                <strong>What should I do?</strong> If the address in your document is more current than your profile address, we recommend updating your profile. This helps ensure accurate document processing in the future.
+                            </p>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Document Processing Status -->
+                <div id="document-processing-status" class="mt-6 hidden">
+                    <h3 class="text-lg font-semibold mb-2 text-blue-700">📄 Processing Documents</h3>
+                    <div class="bg-blue-50 border border-blue-200 rounded-md p-4">
+                        <div class="flex items-center space-x-3">
+                            <div class="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-600"></div>
+                            <div>
+                                <p class="text-sm text-blue-700">
+                                    <span id="processing-status-text">Analyzing your documents and extracting information...</span>
+                                </p>
+                                <p class="text-xs text-blue-600 mt-1">
+                                    This may take a few minutes depending on the number and complexity of your documents.
+                                </p>
+                            </div>
+                        </div>
+                        <div class="mt-3">
+                            <div class="bg-blue-200 rounded-full h-2">
+                                <div id="processing-progress-bar" class="bg-blue-600 h-2 rounded-full transition-all duration-500" style="width: 0%"></div>
+                            </div>
+                            <p class="text-xs text-blue-600 mt-1">
+                                <span id="processing-progress-text">Preparing to process documents...</span>
+                            </p>
+                        </div>
+                    </div>
+                </div>
+                
+                <p class="text-sm text-gray-500 mt-4">Supported file formats: PDF, JPG, PNG, DOCX, XLSX. Maximum file size: 50MB per file.</p>
+            </div>
+        </div>
+        
+        <div class="flex justify-between mt-8 pt-6 border-t border-gray-200">
+            <a href="{% url 'wealth_onboarding' %}" class="text-horizon-primary hover:underline">← Back to Onboarding Form</a>
+            <div class="space-x-4">
+                <button id="submit-to-advisor-btn" class="bg-horizon-secondary text-white py-2 px-6 rounded-md hover:bg-horizon-primary transition-all">Submit to Advisor</button>
+                <a href="{% url 'index' %}" class="bg-horizon-primary text-white py-2 px-6 rounded-md hover:bg-horizon-secondary transition-all">Complete Later</a>
+            </div>
+        </div>
+    </div>
+{% else %}
+    <div class="bg-white rounded-lg shadow-md p-8 text-center">
+        <div class="text-4xl text-gray-300 mb-4">🔒</div>
+        <h2 class="text-xl font-semibold mb-2">Please Log In</h2>
+        <p class="text-gray-600 mb-6">You need to be logged in to upload documents.</p>
+        <a href="{% url 'login' %}" class="bg-horizon-primary text-white py-2 px-6 rounded-md hover:bg-horizon-secondary transition-all">Log In</a>
+    </div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<!-- Box UI Elements JS -->
+<script src="https://cdn01.boxcdn.net/platform/elements/23.0.0/en-US/uploader.js"></script>
+<!-- Load our document processing script -->
+<script src="{% static 'js/document_processing.js' %}?v={% now 'U' %}"></script>
+
+<!-- Document upload initialization script -->
+<script>
+    // Global variables to track processing state
+    let uploadedFiles = [];
+    let documentProcessingInProgress = false;
+    let processedFilesCount = 0;
+    let totalFilesToProcess = 0;
+    
+    // Initialize Box Content Uploader with API token and folder ID
+    document.addEventListener('DOMContentLoaded', function() {
+        // Get the username from backend
+        let username = '{{ user.username }}';
+        
+        // URL to your logo - customize as needed
+        let logoUrl = '{% static "img/horizon-logo.svg" %}';
+        
+        // Initialize the Box Content Uploader
+        initializeBoxContent(username, logoUrl);
+        
+        // Set up the Submit to Advisor button
+        const submitBtn = document.getElementById('submit-to-advisor-btn');
+        if (submitBtn) {
+            submitBtn.addEventListener('click', handleSubmitToAdvisor);
+        }
+    });
+    
+    // Function to start document processing after files are uploaded
+    async function startDocumentProcessing(fileIds) {
+        if (!fileIds || fileIds.length === 0) {
+            console.log('No files to process');
+            return;
+        }
+        
+        console.log(`Starting document processing for ${fileIds.length} files:`, fileIds);
+        
+        // Show processing status
+        showProcessingStatus();
+        totalFilesToProcess = fileIds.length;
+        processedFilesCount = 0;
+        documentProcessingInProgress = true;
+        
+        updateProcessingProgress(0, `Starting to process ${totalFilesToProcess} documents...`);
+        
+        try {
+            // Start batch processing
+            const response = await fetch('/api/box/process-documents-batch/', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': getCSRFToken()
+                },
+                body: JSON.stringify({
+                    fileIds: fileIds
+                })
+            });
+            
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            
+            const result = await response.json();
+            console.log('Document processing result:', result);
+            
+            if (result.success) {
+                processedFilesCount = result.summary.successful;
+                updateProcessingProgress(100, `Successfully processed ${processedFilesCount} of ${totalFilesToProcess} documents`);
+                
+                // Extract and update document cards with identified document types
+                if (result.results && Array.isArray(result.results)) {
+                    console.log('Updating document cards from batch processing results...');
+                    result.results.forEach(fileResult => {
+                        if (fileResult.success && fileResult.documentType) {
+                            console.log(`UPDATING CARD: Document type identified for file ID ${fileResult.fileId}: ${fileResult.documentType}`);
+                            updateDocumentCard(fileResult.documentType);
+                        }
+                    });
+                }
+                
+                // Wait a moment for all database operations to complete
+                setTimeout(() => {
+                    finishDocumentProcessing();
+                }, 2000);
+            } else {
+                throw new Error(result.message || 'Document processing failed');
+            }
+            
+        } catch (error) {
+            console.error('Error in document processing:', error);
+            updateProcessingProgress(100, `Error processing documents: ${error.message}`);
+            
+            // Still check for address mismatches even if some processing failed
+            setTimeout(() => {
+                finishDocumentProcessing();
+            }, 2000);
+        }
+    }
+    
+    // Function to finish document processing and check for address mismatches
+    async function finishDocumentProcessing() {
+        console.log('Finishing document processing, checking for address mismatches...');
+        
+        // Hide processing status
+        hideProcessingStatus();
+        
+        // Now check for address mismatches
+        await checkAddressMismatches();
+        
+        documentProcessingInProgress = false;
+        
+        console.log('Document processing complete');
+    }
+    
+    // Function to show processing status
+    function showProcessingStatus() {
+        const statusContainer = document.getElementById('document-processing-status');
+        if (statusContainer) {
+            statusContainer.classList.remove('hidden');
+        }
+    }
+    
+    // Function to hide processing status
+    function hideProcessingStatus() {
+        const statusContainer = document.getElementById('document-processing-status');
+        if (statusContainer) {
+            statusContainer.classList.add('hidden');
+        }
+    }
+    
+    // Function to update processing progress
+    function updateProcessingProgress(percentage, statusText) {
+        const progressBar = document.getElementById('processing-progress-bar');
+        const progressText = document.getElementById('processing-progress-text');
+        const statusTextElement = document.getElementById('processing-status-text');
+        
+        if (progressBar) {
+            progressBar.style.width = `${percentage}%`;
+        }
+        
+        if (progressText) {
+            progressText.textContent = statusText;
+        }
+        
+        if (statusTextElement && percentage < 100) {
+            statusTextElement.textContent = 'Analyzing your documents and extracting information...';
+        } else if (statusTextElement && percentage === 100) {
+            statusTextElement.textContent = 'Document processing complete!';
+        }
+    }
+    
+    // Function to handle the Submit to Advisor button click
+    async function handleSubmitToAdvisor() {
+        try {
+            console.log('Submit to Advisor button clicked');
+            
+            // Check if document processing is still in progress
+            if (documentProcessingInProgress) {
+                alert('Please wait for document processing to complete before submitting to your advisor.');
+                return;
+            }
+            
+            // Check for any remaining address mismatches
+            const mismatches = await getAddressMismatches();
+            if (mismatches && mismatches.length > 0) {
+                const userConfirmed = confirm(
+                    `You have ${mismatches.length} unresolved address mismatch(es). ` +
+                    'Would you like to proceed anyway? You can resolve these later with your advisor.'
+                );
+                if (!userConfirmed) {
+                    return;
+                }
+            }
+            
+            // Get the folder ID from the uploader element
+            const uploaderElement = document.getElementById('box-uploader');
+            const folderId = uploaderElement ? uploaderElement.dataset.folderId : null;
+            
+            if (!folderId) {
+                console.error('No folder ID found for financial summary generation');
+                alert('Unable to locate document folder. Please try again.');
+                return;
+            }
+            
+            console.log(`Initiating financial summary generation for folder: ${folderId}`);
+            
+            // Call the function that sets up session storage and redirects
+            // This function is defined in document_processing.js
+            if (typeof initiateFinancialSummaryAndRedirect === 'function') {
+                await initiateFinancialSummaryAndRedirect(folderId);
+            } else {
+                console.error('initiateFinancialSummaryAndRedirect function not available');
+                // Fallback: redirect directly
+                window.location.href = "{% url 'submission_complete' %}";
+            }
+            
+        } catch (error) {
+            console.error('Error in handleSubmitToAdvisor:', error);
+            alert('There was an error preparing your submission. Please try again.');
+        }
+    }
+    
+    // Function to get address mismatches (for internal use)
+    async function getAddressMismatches() {
+        try {
+            const response = await fetch('/api/address-mismatches/');
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            const result = await response.json();
+            return result.success ? result.mismatches : [];
+        } catch (error) {
+            console.error('Error fetching address mismatches:', error);
+            return [];
+        }
+    }
+    
+    // Function to check for address mismatches (only called after processing is complete)
+    async function checkAddressMismatches() {
+        try {
+            console.log('Checking for address mismatches...');
+            const response = await fetch('/api/address-mismatches/');
+            
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            
+            const result = await response.json();
+            
+            if (result.success) {
+                console.log(`Found ${result.mismatches.length} address mismatches`);
+                displayAddressMismatches(result.mismatches);
+            } else {
+                console.error('Failed to fetch address mismatches:', result.message);
+            }
+            
+        } catch (error) {
+            console.error('Error checking address mismatches:', error);
+        }
+    }
+    
+    // Function to check if two addresses are similar
+    function areAddressesSimilar(address1, address2) {
+        if (!address1 || !address2) return false;
+        
+        // Normalize addresses for comparison
+        const normalize = (addr) => addr.toLowerCase().replace(/[^\w\s]/g, '').replace(/\s+/g, ' ').trim();
+        
+        const addr1 = {
+            street: normalize(address1.street_address || ''),
+            city: normalize(address1.city || ''),
+            postal_code: normalize(address1.postal_code || ''),
+            full: normalize(address1.full_address || '')
+        };
+        
+        const addr2 = {
+            street: normalize(address2.street_address || ''),
+            city: normalize(address2.city || ''),
+            postal_code: normalize(address2.postal_code || ''),
+            full: normalize(address2.full_address || '')
+        };
+        
+        // Check for exact match first
+        if (addr1.full === addr2.full) return true;
+        
+        // Check if street and city match
+        if (addr1.street && addr2.street && addr1.city && addr2.city) {
+            if (addr1.street === addr2.street && addr1.city === addr2.city) {
+                return true;
+            }
+        }
+        
+        // Check if street and postal code match
+        if (addr1.street && addr2.street && addr1.postal_code && addr2.postal_code) {
+            if (addr1.street === addr2.street && addr1.postal_code === addr2.postal_code) {
+                return true;
+            }
+        }
+        
+        return false;
+    }
+    
+    // Function to display address mismatches in the UI
+    function displayAddressMismatches(mismatches) {
+        const container = document.getElementById('address-mismatches-container');
+        const list = document.getElementById('address-mismatches-list');
+        
+        if (!container || !list) {
+            console.error('Address mismatches container elements not found');
+            return;
+        }
+        
+        // Clear existing mismatches
+        list.innerHTML = '';
+        
+        if (mismatches && mismatches.length > 0) {
+            console.log(`Displaying ${mismatches.length} address mismatches`);
+            
+            // Get the client's profile address from the first mismatch
+            const clientAddress = mismatches[0].client_address.full_address || 'No address on file';
+            
+            // Group mismatches by similar extracted addresses to avoid duplicates
+            const addressGroups = [];
+            
+            mismatches.forEach(mismatch => {
+                const extractedAddress = mismatch.extracted_address;
+                
+                // Find an existing group with similar address
+                let foundGroup = addressGroups.find(group => 
+                    areAddressesSimilar(group.representativeAddress, extractedAddress)
+                );
+                
+                if (foundGroup) {
+                    foundGroup.mismatches.push(mismatch);
+                } else {
+                    // Create new group
+                    addressGroups.push({
+                        representativeAddress: extractedAddress,
+                        displayAddress: extractedAddress.full_address || 'Unknown address',
+                        mismatches: [mismatch]
+                    });
+                }
+            });
+            
+            console.log(`Grouped ${mismatches.length} mismatches into ${addressGroups.length} similar address groups`);
+            
+            // Create compact display container
+            const mismatchContainer = document.createElement('div');
+            mismatchContainer.className = 'bg-white border border-yellow-300 rounded-lg p-4 shadow-sm';
+            
+            // Client's record address at the top
+            mismatchContainer.innerHTML = `
+                <div class="mb-4">
+                    <h4 class="text-sm font-semibold text-gray-700 mb-2">📍 Your Current Address on File:</h4>
+                    <div class="bg-gray-50 p-3 rounded-md border-l-4 border-gray-400">
+                        <p class="text-sm text-gray-800">${clientAddress}</p>
+                    </div>
+                </div>
+                
+                <div class="mb-3">
+                    <h4 class="text-sm font-semibold text-yellow-700 mb-2">⚠️ Different Addresses Found in Documents:</h4>
+                    <p class="text-xs text-gray-600 mb-3">Choose an address below to update your profile, or keep your current address.</p>
+                </div>
+                
+                <div id="address-options-list" class="space-y-2">
+                    <!-- Address options will be populated here -->
+                </div>
+                
+                <div class="mt-4 pt-3 border-t border-gray-200">
+                    <button 
+                        class="w-full bg-gray-500 text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-gray-600 transition-colors"
+                        onclick="resolveAllMismatches(false)"
+                        id="keep-current-btn">
+                        ✓ Keep My Current Address (Mark All as Reviewed)
+                    </button>
+                </div>
+                
+                <div class="mt-3 text-xs text-gray-500 bg-gray-50 p-2 rounded">
+                    <strong>Note:</strong> If you update your address, it will be used for future document processing and address verification.
+                </div>
+            `;
+            
+            list.appendChild(mismatchContainer);
+            
+            // Populate the address options using grouped addresses
+            const optionsList = document.getElementById('address-options-list');
+            addressGroups.forEach(group => {
+                const mismatchIds = group.mismatches.map(m => m.id);
+                const filesList = group.mismatches.map(m => m.file_name).join(', ');
+                const mismatchTypeLabel = getMismatchTypeLabel(group.mismatches[0].mismatch_type);
+                const extractedAddress = group.displayAddress;
+                
+                const addressOption = document.createElement('div');
+                addressOption.className = 'flex items-start justify-between p-3 bg-blue-50 rounded-md border border-blue-200';
+                addressOption.innerHTML = `
+                    <div class="flex-1 mr-3">
+                        <div class="flex items-center space-x-2 mb-1">
+                            <p class="text-sm font-medium text-blue-800">${extractedAddress}</p>
+                            <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-yellow-100 text-yellow-700">
+                                ${mismatchTypeLabel}
+                            </span>
+                            ${group.mismatches.length > 1 ? `<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-700">Similar in ${group.mismatches.length} files</span>` : ''}
+                        </div>
+                        <p class="text-xs text-blue-600">
+                            <strong>Found in:</strong> ${filesList}
+                        </p>
+                    </div>
+                    <button 
+                        class="flex-shrink-0 bg-blue-600 text-white px-3 py-1.5 rounded text-xs font-medium hover:bg-blue-700 transition-colors"
+                        onclick="updateClientAddressForGroup([${mismatchIds.map(id => `'${id}'`).join(',')}], true)"
+                        id="use-address-btn-${extractedAddress.replace(/[^a-zA-Z0-9]/g, '')}">
+                        Use This Address
+                    </button>
+                `;
+                
+                optionsList.appendChild(addressOption);
+            });
+            
+            // Show the container
+            container.classList.remove('hidden');
+        } else {
+            // Hide the container if no mismatches
+            container.classList.add('hidden');
+            console.log('No address mismatches found');
+        }
+    }
+    
+    // Function to get a user-friendly label for mismatch type
+    function getMismatchTypeLabel(mismatchType) {
+        switch (mismatchType) {
+            case 'full_mismatch':
+                return 'Complete Mismatch';
+            case 'partial_mismatch':
+                return 'Partial Mismatch';
+            case 'not_validated':
+                return 'Not Validated';
+            default:
+                return 'Unknown';
+        }
+    }
+    
+    // Function to update client address (for a single mismatch)
+    async function updateClientAddress(mismatchId, useExtractedAddress) {
+        const mismatchItem = document.getElementById(`mismatch-${mismatchId}`);
+        const updateBtn = mismatchItem.querySelector(`#update-btn-${mismatchId}`);
+        const keepBtn = mismatchItem.querySelector(`#keep-btn-${mismatchId}`);
+
+        // Disable buttons during processing
+        if (updateBtn) {
+            updateBtn.disabled = true;
+            updateBtn.textContent = useExtractedAddress ? '🔄 Updating...' : '🔄 Processing...';
+        }
+        if (keepBtn) {
+            keepBtn.disabled = true;
+            keepBtn.textContent = useExtractedAddress ? '🔄 Processing...' : '🔄 Keeping...';
+        }
+
+        try {
+            const response = await fetch('/api/update-client-address/', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': getCSRFToken()
+                },
+                body: JSON.stringify({ 
+                    mismatchId: mismatchId,
+                    useExtractedAddress: useExtractedAddress 
+                })
+            });
+
+            const result = await response.json();
+
+            if (result.success) {
+                // Show success message
+                if (useExtractedAddress) {
+                    alert(`✅ Your profile address has been updated!\n\nNew Address: ${result.new_address}\n\n${result.resolved_additional > 0 ? `${result.resolved_additional} additional mismatches were also resolved.` : ''}`);
+                } else {
+                    alert('✅ Address mismatch marked as resolved. Your profile address remains unchanged.');
+                }
+                
+                // Remove the resolved mismatch from the UI
+                mismatchItem.remove();
+                
+                // Check if there are any remaining mismatches
+                const remainingMismatches = document.querySelectorAll('#address-mismatches-list li');
+                if (remainingMismatches.length === 0) {
+                    // Hide the entire container if no mismatches remain
+                    document.getElementById('address-mismatches-container').classList.add('hidden');
+                }
+                
+                // Refresh the mismatches list to show updated status
+                setTimeout(() => checkAddressMismatches(), 1000);
+            } else {
+                alert('❌ Failed to update address: ' + result.message);
+                // Re-enable buttons
+                if (updateBtn) {
+                    updateBtn.disabled = false;
+                    updateBtn.textContent = '📍 Update My Profile Address';
+                }
+                if (keepBtn) {
+                    keepBtn.disabled = false;
+                    keepBtn.textContent = '✓ Keep Current Profile Address';
+                }
+            }
+        } catch (error) {
+            console.error('Error updating client address:', error);
+            alert('❌ There was an error updating your address. Please try again or contact support.');
+            // Re-enable buttons
+            if (updateBtn) {
+                updateBtn.disabled = false;
+                updateBtn.textContent = '📍 Update My Profile Address';
+            }
+            if (keepBtn) {
+                keepBtn.disabled = false;
+                keepBtn.textContent = '✓ Keep Current Profile Address';
+            }
+        }
+    }
+
+    // Function to update client address for a group of mismatches (all with the same extracted address)
+    async function updateClientAddressForGroup(mismatchIds, useExtractedAddress) {
+        // Find the specific button that was clicked
+        let clickedButton = null;
+        document.querySelectorAll('button[onclick*="updateClientAddressForGroup"]').forEach(btn => {
+            const onclick = btn.getAttribute('onclick');
+            // Check if this button's onclick contains the mismatchIds we're looking for
+            const idsInOnclick = onclick.match(/\[([^\]]+)\]/);
+            if (idsInOnclick) {
+                const buttonIds = idsInOnclick[1].split(',').map(id => id.trim().replace(/'/g, ''));
+                // Check if arrays match (regardless of order)
+                const sortedButtonIds = [...buttonIds].sort();
+                const sortedMismatchIds = [...mismatchIds].sort();
+                if (JSON.stringify(sortedButtonIds) === JSON.stringify(sortedMismatchIds)) {
+                    clickedButton = btn;
+                }
+            }
+        });
+        
+        if (!clickedButton) {
+            console.error('Could not find button for mismatches:', mismatchIds);
+            return;
+        }
+        
+        // Get the selected address from the button's parent container for display
+        const addressContainer = clickedButton.closest('.flex').querySelector('.text-blue-800');
+        const selectedAddress = addressContainer ? addressContainer.textContent : 'Selected address';
+        
+        // Disable the clicked button during processing
+        const originalText = clickedButton.textContent;
+        clickedButton.disabled = true;
+        clickedButton.textContent = useExtractedAddress ? '🔄 Updating...' : '🔄 Processing...';
+
+        try {
+            // Get ALL mismatch IDs to resolve everything at once
+            const allMismatchIds = [];
+            document.querySelectorAll('button[onclick*="updateClientAddressForGroup"]').forEach(btn => {
+                const onclick = btn.getAttribute('onclick');
+                const match = onclick.match(/\[([^\]]+)\]/);
+                if (match) {
+                    const ids = match[1].split(',').map(id => id.trim().replace(/'/g, ''));
+                    allMismatchIds.push(...ids);
+                }
+            });
+
+            const response = await fetch('/api/update-client-address-group/', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': getCSRFToken()
+                },
+                body: JSON.stringify({ 
+                    mismatchIds: allMismatchIds, // Resolve ALL mismatches
+                    useExtractedAddress: useExtractedAddress 
+                })
+            });
+
+            const result = await response.json();
+
+            if (result.success) {
+                // Replace the entire address mismatch interface with a confirmation message
+                const container = document.getElementById('address-mismatches-container');
+                const finalAddress = useExtractedAddress ? result.new_address : selectedAddress;
+                
+                container.innerHTML = `
+                    <h3 class="text-lg font-semibold mb-2 text-green-700">✅ Address Record Updated</h3>
+                    <div class="bg-green-50 border border-green-200 rounded-md p-4">
+                        <div class="mb-3">
+                            <h4 class="text-sm font-semibold text-green-700 mb-2">📍 Your Official Address Record:</h4>
+                            <div class="bg-white p-3 rounded-md border-l-4 border-green-400">
+                                <p class="text-sm text-gray-800 font-medium">${finalAddress}</p>
+                            </div>
+                        </div>
+                        
+                        <div class="text-sm text-green-700">
+                            ${useExtractedAddress 
+                                ? `<p><strong>✅ Address Updated:</strong> Your profile address has been updated to match your documents.</p>
+                                   ${result.resolved_additional > 0 ? `<p class="mt-1"><strong>📋 All Resolved:</strong> ${result.resolved_additional + result.resolved_count} address mismatches have been automatically resolved.</p>` : ''}`
+                                : `<p><strong>✅ Address Confirmed:</strong> Your current address has been confirmed as correct.</p>
+                                   <p class="mt-1"><strong>📋 All Resolved:</strong> ${result.resolved_count} address mismatches have been marked as reviewed.</p>`
+                            }
+                        </div>
+                        
+                        <div class="mt-3 text-xs text-green-600 bg-green-100 p-2 rounded">
+                            <strong>Note:</strong> This address will be used for future document processing and verification. All address mismatches have been resolved.
+                        </div>
+                    </div>
+                `;
+                
+                console.log('All address mismatches resolved successfully');
+            } else {
+                alert('❌ Failed to update address: ' + result.message);
+                // Re-enable button
+                clickedButton.disabled = false;
+                clickedButton.textContent = originalText;
+            }
+        } catch (error) {
+            console.error('Error updating client address for group:', error);
+            alert('❌ There was an error updating your address. Please try again or contact support.');
+            // Re-enable button
+            clickedButton.disabled = false;
+            clickedButton.textContent = originalText;
+        }
+    }
+    
+    // Function to resolve all mismatches without updating address
+    async function resolveAllMismatches(useExtractedAddress) {
+        try {
+            // Get all mismatch IDs from the current display
+            const allMismatchIds = [];
+            document.querySelectorAll('button[onclick*="updateClientAddressForGroup"]').forEach(btn => {
+                const onclick = btn.getAttribute('onclick');
+                const match = onclick.match(/\[([^\]]+)\]/);
+                if (match) {
+                    const ids = match[1].split(',').map(id => id.trim().replace(/'/g, ''));
+                    allMismatchIds.push(...ids);
+                }
+            });
+            
+            if (allMismatchIds.length === 0) {
+                console.warn('No mismatch IDs found to resolve');
+                return;
+            }
+            
+            // Get the current address for display
+            const currentAddressElement = document.querySelector('.bg-gray-50 p-3 .text-gray-800');
+            const currentAddress = currentAddressElement ? currentAddressElement.textContent : 'Your current address';
+            
+            // Disable the button during processing
+            const keepBtn = document.getElementById('keep-current-btn');
+            if (keepBtn) {
+                keepBtn.disabled = true;
+                keepBtn.textContent = '🔄 Processing...';
+            }
+            
+            const response = await fetch('/api/update-client-address-group/', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': getCSRFToken()
+                },
+                body: JSON.stringify({ 
+                    mismatchIds: allMismatchIds,
+                    useExtractedAddress: useExtractedAddress 
+                })
+            });
+
+            const result = await response.json();
+
+            if (result.success) {
+                // Replace the entire address mismatch interface with a confirmation message
+                const container = document.getElementById('address-mismatches-container');
+                
+                container.innerHTML = `
+                    <h3 class="text-lg font-semibold mb-2 text-green-700">✅ Address Record Confirmed</h3>
+                    <div class="bg-green-50 border border-green-200 rounded-md p-4">
+                        <div class="mb-3">
+                            <h4 class="text-sm font-semibold text-green-700 mb-2">📍 Your Official Address Record:</h4>
+                            <div class="bg-white p-3 rounded-md border-l-4 border-green-400">
+                                <p class="text-sm text-gray-800 font-medium">${currentAddress}</p>
+                            </div>
+                        </div>
+                        
+                        <div class="text-sm text-green-700">
+                            <p><strong>✅ Address Confirmed:</strong> Your current address has been confirmed as correct.</p>
+                            <p class="mt-1"><strong>📋 All Resolved:</strong> ${result.resolved_count} address mismatches have been marked as reviewed.</p>
+                        </div>
+                        
+                        <div class="mt-3 text-xs text-green-600 bg-green-100 p-2 rounded">
+                            <strong>Note:</strong> This address will be used for future document processing and verification. All address mismatches have been resolved.
+                        </div>
+                    </div>
+                `;
+                
+                console.log('All address mismatches resolved successfully');
+            } else {
+                alert('❌ Failed to resolve mismatches: ' + result.message);
+                // Re-enable button
+                if (keepBtn) {
+                    keepBtn.disabled = false;
+                    keepBtn.textContent = '✓ Keep My Current Address (Mark All as Reviewed)';
+                }
+            }
+        } catch (error) {
+            console.error('Error resolving all mismatches:', error);
+            alert('❌ There was an error resolving the mismatches. Please try again or contact support.');
+            // Re-enable button
+            const keepBtn = document.getElementById('keep-current-btn');
+            if (keepBtn) {
+                keepBtn.disabled = false;
+                keepBtn.textContent = '✓ Keep My Current Address (Mark All as Reviewed)';
+            }
+        }
+    }
+    
+    // Function to get CSRF token
+    function getCSRFToken() {
+        const cookieValue = document.cookie
+            .split('; ')
+            .find(row => row.startsWith('csrftoken='))
+            ?.split('=')[1];
+        return cookieValue || '';
+    }
+</script>
+{% endblock %} 

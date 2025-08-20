@@ -1,0 +1,266 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Submission Complete | Horizon Financial{% endblock %}
+
+{% block extra_head %}
+<style>
+    .processing-spinner {
+        width: 100px;
+        height: 100px;
+        border-radius: 50%;
+        border: 8px solid rgba(18, 47, 66, 0.1);
+        border-top-color: #122f42;
+        animation: spin 1.5s infinite linear;
+    }
+    
+    @keyframes spin {
+        to { transform: rotate(360deg); }
+    }
+    
+    .pulse-effect {
+        animation: pulse 2s infinite;
+    }
+    
+    @keyframes pulse {
+        0% { opacity: 1; }
+        50% { opacity: 0.6; }
+        100% { opacity: 1; }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="max-w-3xl mx-auto pt-10 pb-12 px-4">
+    <div class="text-center mb-10">
+        <h1 class="text-3xl font-bold text-gray-800 mb-4">Document Processing</h1>
+        <p class="text-gray-600 text-lg" id="status-message">Your documents are being analyzed to generate a comprehensive financial summary.</p>
+    </div>
+    
+    <!-- Processing Animation (shown initially) -->
+    <div id="processing-section" class="bg-white rounded-lg shadow-md p-8 text-center">
+        <div class="mx-auto processing-spinner mb-6"></div>
+        
+        <h2 class="text-xl font-semibold mb-4">Analyzing your financial documents</h2>
+        <p class="text-gray-600 mb-6">Our AI is reviewing your documents to extract key financial insights.</p>
+        
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+            <div class="bg-blue-50 p-4 rounded-lg">
+                <h3 class="font-semibold text-horizon-primary mb-2">Extracting Data</h3>
+                <p class="text-sm text-gray-600">Reading and extracting key data points from your documents</p>
+            </div>
+            
+            <div class="bg-blue-50 p-4 rounded-lg pulse-effect">
+                <h3 class="font-semibold text-horizon-primary mb-2">Analyzing Patterns</h3>
+                <p class="text-sm text-gray-600">Identifying financial patterns and insights</p>
+            </div>
+            
+            <div class="bg-blue-50 p-4 rounded-lg">
+                <h3 class="font-semibold text-horizon-primary mb-2">Creating Summary</h3>
+                <p class="text-sm text-gray-600">Compiling a comprehensive financial summary</p>
+            </div>
+        </div>
+        
+        <p class="text-sm text-gray-500 italic">This process typically takes 30-90 seconds. Please don't close this page.</p>
+    </div>
+    
+    <!-- Success Section (initially hidden) -->
+    <div id="success-section" class="bg-white rounded-lg shadow-md p-8 text-center hidden">
+        <div class="w-16 h-16 mx-auto bg-green-100 text-green-500 rounded-full flex items-center justify-center mb-6">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" class="w-10 h-10">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+            </svg>
+        </div>
+        
+        <h2 class="text-xl font-semibold mb-4" id="success-header">Your financial summary has been generated</h2>
+        <p class="text-gray-600 mb-6" id="success-subheader">Your advisor will reach out to discuss your financial analysis results.</p>
+        
+        <div id="analysis-link-container" class="mb-6"></div>
+
+        <div class="bg-blue-50 border-l-4 border-horizon-primary text-horizon-primary p-4 mb-6 text-left">
+            <p class="font-bold">What happens next?</p>
+            <p>Your advisor will review your financial summary and prepare a personalized investment strategy. You can expect to hear from them within 2-3 business days to schedule your consultation.</p>
+        </div>
+        
+        <div class="mb-6 bg-gray-50 p-4 rounded-lg text-left">
+            <p class="font-bold text-gray-700 mb-2">AI-Generated Financial Summary Features:</p>
+            <ul class="list-disc pl-5 text-gray-600 space-y-1">
+                <li>Comprehensive analysis of your financial documents</li>
+                <li>Asset allocation by sector</li>
+                <li>Total assets, liabilities, and net worth calculation</li>
+                <li>Unrealized gains and losses</li>
+                <li>Flagged issues requiring attention</li>
+            </ul>
+            <p class="text-xs text-gray-500 mt-2 italic">All data has been processed by AI and should be verified during your advisor consultation.</p>
+        </div>
+        
+        <a href="{% url 'index' %}" class="bg-horizon-primary text-white py-2 px-6 rounded-md hover:bg-horizon-secondary transition-all inline-block">Return to Dashboard</a>
+    </div>
+
+    <!-- Error Section (initially hidden) -->
+    <div id="error-section" class="bg-white rounded-lg shadow-md p-8 text-center hidden">
+        <div class="w-16 h-16 mx-auto bg-red-100 text-red-500 rounded-full flex items-center justify-center mb-6">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" class="w-10 h-10">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 13c-.77 1.333.192 3 1.732 3z" />
+            </svg>
+        </div>
+        <h2 class="text-xl font-semibold mb-4">Summary Generation Failed</h2>
+        <p class="text-gray-600 mb-6" id="error-message-text">Unfortunately, we encountered an error while generating your financial summary. Please try again later or contact support.</p>
+        <a href="{% url 'document_upload' %}" class="bg-horizon-secondary text-white py-2 px-6 rounded-md hover:bg-opacity-80 transition-all inline-block mr-2">Try Uploading Again</a>
+        <a href="{% url 'index' %}" class="bg-gray-300 text-gray-700 py-2 px-6 rounded-md hover:bg-gray-400 transition-all inline-block">Return to Dashboard</a>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    function getCSRFToken() { // Ensure CSRF token function is available
+        const name = 'csrftoken';
+        let cookieValue = null;
+        if (document.cookie && document.cookie !== '') {
+            const cookies = document.cookie.split(';');
+            for (let i = 0; i < cookies.length; i++) {
+                const cookie = cookies[i].trim();
+                if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                    cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                    break;
+                }
+            }
+        }
+        return cookieValue;
+    }
+
+    document.addEventListener('DOMContentLoaded', function() {
+        const folderId = sessionStorage.getItem('summaryGenerationFolderId');
+        const generationStatus = sessionStorage.getItem('summaryGenerationStatus');
+
+        const processingSection = document.getElementById('processing-section');
+        const successSection = document.getElementById('success-section');
+        const errorSection = document.getElementById('error-section');
+        const statusMessage = document.getElementById('status-message');
+        
+        // Stages animation (cosmetic, can run regardless of API call status)
+        let currentStage = 0;
+        const stages = document.querySelectorAll('#processing-section .grid-cols-1 > div');
+        function updateStagesAnimation() {
+            stages.forEach(stage => stage.classList.remove('pulse-effect'));
+            if (stages[currentStage]) {
+                stages[currentStage].classList.add('pulse-effect');
+            }
+            currentStage = (currentStage + 1) % stages.length;
+        }
+        if (stages.length > 0) setInterval(updateStagesAnimation, 2000);
+
+
+        if (generationStatus === 'pending' && folderId) {
+            console.log('Summary generation is pending for folderId:', folderId);
+            statusMessage.textContent = 'Your documents are being analyzed to generate a comprehensive financial summary.';
+            processingSection.classList.remove('hidden');
+            successSection.classList.add('hidden');
+            errorSection.classList.add('hidden');
+
+            // Make the API call to generate the financial summary
+            fetch('/api/box/generate-financial-summary/', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': getCSRFToken() 
+                },
+                body: JSON.stringify({ folderId: folderId })
+            })
+            .then(response => response.json())
+            .then(data => {
+                console.log('Financial summary generation API call completed:', data);
+                sessionStorage.setItem('summaryGenerationResult', JSON.stringify(data)); // Store result
+                if (data.success && data.fileId) {
+                    showSuccessSection(data.fileId, data.folderId || folderId);
+                } else {
+                    showErrorSection(data.message || 'Unknown error during summary generation.');
+                }
+                sessionStorage.setItem('summaryGenerationStatus', 'completed'); // Mark as completed
+            })
+            .catch(error => {
+                console.error('Error initiating financial summary generation:', error);
+                sessionStorage.setItem('summaryGenerationResult', JSON.stringify({ success: false, message: error.toString() }));
+                showErrorSection('An error occurred while generating the financial summary. Please try again.');
+                sessionStorage.setItem('summaryGenerationStatus', 'error'); // Mark as error
+            });
+
+        } else if (generationStatus === 'completed' || generationStatus === 'error') {
+            // Page was reloaded or navigated back to after generation was attempted.
+            // Try to show status based on stored result.
+            console.log('Summary generation was previously attempted. Status:', generationStatus);
+            const summaryResultString = sessionStorage.getItem('summaryGenerationResult');
+            if (summaryResultString) {
+                try {
+                    const summaryResult = JSON.parse(summaryResultString);
+                    if (summaryResult.success && summaryResult.fileId) {
+                        showSuccessSection(summaryResult.fileId, summaryResult.folderId || folderId);
+                    } else {
+                        showErrorSection(summaryResult.message || 'Previous attempt to generate summary failed.');
+                    }
+                } catch (e) {
+                    console.error('Error parsing stored summaryGenerationResult:', e);
+                    showErrorSection('Could not retrieve previous summary generation status.');
+                }
+            } else {
+                // No stored result, but status suggests completion/error. Show generic error.
+                showErrorSection('Summary generation status is unclear. Please try again or check your documents.');
+            }
+        } else {
+            // Navigated directly, no generation in progress. Or folderId is missing.
+            console.log('No summary generation in progress (or folderId missing), showing default success/error view.');
+            // Default to an ambiguous state or error if essential info (like folderId) is missing
+             if (!folderId) {
+                showErrorSection("Cannot display summary status: Folder information is missing.");
+            } else {
+                // This case might mean the user bookmarked or directly navigated. 
+                // Or, something went wrong with setting the initial status.
+                // We can show a generic "Check your documents" or prompt to start again.
+                showErrorSection("Not actively generating a summary. Please start the process from the document upload page if needed.");
+            }
+        }
+    });
+
+    function showSuccessSection(generatedFileId, folderIdForLink) {
+        document.getElementById('processing-section').classList.add('hidden');
+        document.getElementById('success-section').classList.remove('hidden');
+        document.getElementById('error-section').classList.add('hidden');
+        document.getElementById('status-message').textContent = 'Your financial summary has been generated successfully!';
+        document.title = 'Financial Summary Generated | Horizon Financial';
+
+        const analysisLinkContainer = document.getElementById('analysis-link-container');
+        analysisLinkContainer.innerHTML = ''; // Clear previous links
+
+        if (generatedFileId && folderIdForLink) {
+            const link = document.createElement('a');
+            link.href = `/financial-analysis/?folderId=${folderIdForLink}&summaryFileId=${generatedFileId}`;
+            link.target = '_blank'; // Open in new tab
+            link.className = 'bg-green-600 hover:bg-green-700 text-white font-semibold py-2 px-6 rounded-md transition-all inline-block text-center';
+            link.textContent = 'View Financial Analysis';
+            analysisLinkContainer.appendChild(link);
+        } else {
+            analysisLinkContainer.innerHTML = '<p class="text-sm text-gray-500">Summary generated, but link details are unavailable. Please check your documents page.</p>';
+        }
+
+        // Optionally clear items if they are truly one-time use per flow
+        // sessionStorage.removeItem('summaryGenerationFolderId');
+        // sessionStorage.removeItem('summaryGenerationStatus');
+        // sessionStorage.removeItem('summaryGenerationResult');
+    }
+
+    function showErrorSection(errorMessage) {
+        document.getElementById('processing-section').classList.add('hidden');
+        document.getElementById('success-section').classList.add('hidden');
+        document.getElementById('error-section').classList.remove('hidden');
+        document.getElementById('status-message').textContent = 'There was a problem generating your summary.';
+        document.getElementById('error-message-text').textContent = errorMessage || 'An unexpected error occurred. Please try again or contact support.';
+        document.title = 'Summary Generation Failed | Horizon Financial';
+
+        // Optionally clear items
+        // sessionStorage.removeItem('summaryGenerationFolderId');
+        // sessionStorage.removeItem('summaryGenerationStatus');
+        // sessionStorage.removeItem('summaryGenerationResult');
+    }
+</script>
+{% endblock %} 

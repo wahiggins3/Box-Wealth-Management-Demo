@@ -1,0 +1,2501 @@
+from django.shortcuts import render, redirect
+from django.http import HttpResponse, JsonResponse
+from django.conf import settings
+from django.contrib.auth.decorators import login_required
+from django.contrib.auth.forms import UserCreationForm
+from django.contrib import messages
+from django.views.decorators.http import require_GET
+from django.contrib.auth import logout
+from django.views.decorators.csrf import csrf_exempt
+import os
+import traceback
+import io
+import json
+import logging
+import requests
+import re
+from datetime import datetime
+from reportlab.lib.pagesizes import letter
+from reportlab.lib import colors
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.enums import TA_CENTER
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
+from boxsdk import Client, JWTAuth, OAuth2
+from boxsdk.exception import BoxAPIException
+from core.services.box_metadata_extraction import BoxMetadataExtractionService
+from core.services.box_metadata_application import BoxMetadataApplicationService
+from core.utils import get_box_client
+from core.services.document_processing_service import DocumentProcessingService
+from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
+
+logger = logging.getLogger(__name__)
+
+# Configure logging for Box SDK (optional, but helpful for debugging)
+logging.getLogger('boxsdk').setLevel(logging.WARNING) # Be less verbose for the SDK itself unless debugging
+
+# Create your views here.
+
+def index(request):
+    """Renders the summary page."""
+    return render(request, 'index.html')
+
+def accounts(request):
+    """Renders the accounts page."""
+    return render(request, 'accounts.html')
+
+@login_required
+def profile(request):
+    """Renders the user profile page."""
+    return render(request, 'profile.html')
+
+@login_required
+def documents(request):
+    """Renders the documents page with Box integration."""
+    context = {}
+    
+    # Structure for the folder descriptions
+    folder_structure = [
+        {
+            'name': 'Onboarding Documents',
+            'description': 'Documents required for account opening and setup',
+            'purpose': 'Store completed forms and identification documents'
+        },
+        {
+            'name': 'Private Documents',
+            'description': 'Your confidential financial records',
+            'purpose': 'Secure storage for sensitive financial information'
+        },
+        {
+            'name': 'Shared with Advisor',
+            'description': 'Documents shared with your financial advisor',
+            'purpose': 'Collaborate with your advisor on financial planning'
+        },
+        {
+            'name': 'Statements',
+            'description': 'Regular account statements',
+            'purpose': 'Archive of your monthly and quarterly statements'
+        }
+    ]
+    
+    context['folder_structure'] = folder_structure
+    
+    # Check if Box integration is enabled
+    if not settings.BOX_ENABLED:
+        context['error_message'] = "Box integration is not configured. Please contact the administrator."
+        context['admin_message'] = "Missing Box API configuration. Set required environment variables in .env file."
+        logging.warning("Box integration is not enabled - missing configuration")
+    
+    return render(request, 'documents.html', context)
+
+def products(request):
+    """Renders the products page."""
+    return render(request, 'products.html')
+
+def support(request):
+    """Renders the support page with contact information and help resources."""
+    return render(request, 'support.html')
+
+def register(request):
+    """Handles user registration."""
+    if request.method == 'POST':
+        form = UserCreationForm(request.POST)
+        if form.is_valid():
+            form.save()
+            username = form.cleaned_data.get('username')
+            messages.success(request, f'Account created for {username}! You can now log in.')
+            return redirect('login')
+    else:
+        form = UserCreationForm()
+    return render(request, 'register.html', {'form': form})
+
+@login_required
+def box_client_folder(request):
+    """API endpoint to get or create a client folder structure."""
+    try:
+        client_name = request.GET.get('clientName')
+        if not client_name:
+            return JsonResponse({'error': 'Client name is required'}, status=400)
+        
+        # Get the Box client
+        client = get_box_client()
+        
+        # The parent folder where all client folders are stored
+        parent_folder_id = '320099222198'  # Specific parent folder for client documents
+        
+        # Check if client folder exists
+        items = client.folder(folder_id=parent_folder_id).get_items(limit=1000)
+        client_folder = None
+        
+        for item in items:
+            if item.name == client_name and item.type == 'folder':
+                client_folder = item
+                break
+        
+        # If client folder doesn't exist, create it
+        if not client_folder:
+            client_folder = client.folder(parent_folder_id).create_subfolder(client_name)
+            logging.info(f"Created client folder: {client_folder.name} ({client_folder.id})")
+            
+            # Create the standard subfolders
+            subfolders = [
+                'Onboarding Documents',
+                'Private Documents',
+                'Shared with Advisor',
+                'Statements'
+            ]
+            
+            for subfolder_name in subfolders:
+                subfolder = client.folder(client_folder.id).create_subfolder(subfolder_name)
+                logging.info(f"Created subfolder: {subfolder.name} ({subfolder.id})")
+        
+        return JsonResponse({
+            'success': True,
+            'folderId': client_folder.id,
+            'clientName': client_name
+        })
+        
+    except Exception as e:
+        logging.error(f"Error in box_client_folder: {e}", exc_info=True)
+        return JsonResponse({'error': str(e)}, status=500)
+
+@login_required
+def box_onboarding_folder(request):
+    """API endpoint to get or create a client's onboarding subfolder."""
+    try:
+        client_name = request.GET.get('clientName')
+        if not client_name:
+            return JsonResponse({'error': 'Client name is required'}, status=400)
+        
+        # Get the Box client
+        client = get_box_client()
+        
+        # The parent folder where all client folders are stored
+        parent_folder_id = '320099222198'  # Specific parent folder for client documents
+        
+        # Check if client folder exists
+        items = client.folder(folder_id=parent_folder_id).get_items(limit=1000)
+        client_folder = None
+        
+        for item in items:
+            if item.name == client_name and item.type == 'folder':
+                client_folder = item
+                break
+        
+        # If client folder doesn't exist, create it
+        if not client_folder:
+            client_folder = client.folder(parent_folder_id).create_subfolder(client_name)
+            logging.info(f"Created client folder: {client_folder.name} ({client_folder.id})")
+        
+        # Define the required subfolder names
+        required_subfolders = [
+            "Onboarding Documents", 
+            "Shared with Advisor", 
+            "Private Documents", 
+            "Statements"
+        ]
+        
+        # Get existing subfolders
+        subfolder_items = client.folder(folder_id=client_folder.id).get_items(limit=100)
+        existing_subfolder_names = {item.name for item in subfolder_items if item.type == 'folder'}
+
+        # Create any missing required subfolders
+        for folder_name in required_subfolders:
+            if folder_name not in existing_subfolder_names:
+                created_folder = client.folder(client_folder.id).create_subfolder(folder_name)
+                logging.info(f"Created subfolder: {created_folder.name} ({created_folder.id}) in {client_folder.name}")
+        
+        # Find the "Onboarding Documents" subfolder to return its ID
+        onboarding_docs_folder_id = None
+        all_subfolders_in_client_folder = client.folder(folder_id=client_folder.id).get_items(limit=100)
+        for sub_item in all_subfolders_in_client_folder:
+            if sub_item.name == "Onboarding Documents" and sub_item.type == 'folder':
+                onboarding_docs_folder_id = sub_item.id
+                break
+        
+        if not onboarding_docs_folder_id:
+            logging.error(f"'Onboarding Documents' subfolder not found in {client_folder.name} ({client_folder.id}) after creation attempt.")
+            return JsonResponse({'error': "Failed to find or create the 'Onboarding Documents' subfolder."}, status=500)
+
+        # Return the "Onboarding Documents" folder ID for the uploader
+        return JsonResponse({
+            'success': True,
+            'folderId': onboarding_docs_folder_id, # ID of the "Onboarding Documents" folder
+            'clientName': client_name,
+            'parentFolderId': client_folder.id # Parent of "Onboarding Documents" is the client_folder
+        })
+        
+    except Exception as e:
+        logging.error(f"Error in box_onboarding_folder: {e}", exc_info=True)
+        return JsonResponse({'error': str(e)}, status=500)
+
+@login_required
+def box_explorer_token(request):
+    """API endpoint to generate a downscoped token for Box Content Explorer."""
+    try:
+        folder_id = request.GET.get('folderId')
+        if not folder_id:
+            return JsonResponse({'error': 'Folder ID is required'}, status=400)
+        
+        # Get the Box client
+        client = get_box_client()
+        
+        # Define the scopes for the downscoped token
+        # These scopes are specifically for the Content Explorer UI Element
+        scopes = [
+            'base_explorer',  # Basic explorer functionality
+            'item_preview',   # Preview files
+            'item_download',  # Download files
+            'item_rename',    # Rename files
+            'item_delete',    # Delete files
+            'item_share',     # Share files
+            'item_upload'     # Upload files
+        ]
+        
+        # Generate the downscoped token
+        # The resource is the specific folder we're accessing
+        box_response = client.downscope_token(
+            scopes=scopes,
+            item=client.folder(folder_id=folder_id)
+        )
+        
+        # Return the token in the response
+        return JsonResponse({
+            'success': True,
+            'token': box_response['access_token'],
+            'folderId': folder_id
+        })
+        
+    except Exception as e:
+        logging.error(f"Error in box_explorer_token: {e}", exc_info=True)
+        return JsonResponse({'error': str(e)}, status=500)
+
+@login_required # Ensure only logged-in users can access this
+def box_documents(request):
+    """Authenticates with Box and fetches root folder items. Returns a context dict."""
+    box_items = None
+    error_message = None
+
+    try:
+        # Get Box client (no need to use as_user anymore)
+        client = get_box_client()
+
+        # Fetch items from the root folder ('0')
+        items = client.folder(folder_id='0').get_items(limit=100)
+        box_items = list(items) # Convert iterator to list for template
+
+    except BoxAPIException as e:
+        error_message = f"Box API Error: {e.status} - {getattr(e, 'message', 'Unknown error')}"
+        logging.error(f"Box API Error: {e}")
+    except Exception as e:
+        error_message = f"An unexpected error occurred: {e}"
+        logging.error(f"Error fetching Box documents: {e}", exc_info=True)
+
+    context = {
+        'box_items': box_items,
+        'error_message': error_message,
+    }
+    
+    return context
+
+def logout_view(request):
+    """Custom logout view that accepts both GET and POST requests."""
+    logout(request)
+    return redirect('login')
+
+@login_required
+def wealth_onboarding(request):
+    """Renders the wealth management onboarding page."""
+    context = {}
+    
+    if request.method == 'POST':
+        # In a real application, you would save this data to a database
+        # For now, we'll just redirect to the document upload page
+        return redirect('document_upload')
+        
+    return render(request, 'wealth_onboarding.html', context)
+
+@login_required
+def document_upload(request):
+    """Renders the document upload page."""
+    context = {}
+    return render(request, 'document_upload.html', context)
+
+@login_required
+def submission_complete(request):
+    """Renders the submission completion page."""
+    return render(request, 'submission_complete.html')
+
+@login_required
+@csrf_exempt
+def generate_financial_summary(request):
+    """Generate a financial summary PDF using Box AI.
+    
+    This endpoint creates a financial summary PDF based on the uploaded documents.
+    It queries each document with Box AI Ask endpoint, using metadata extraction results,
+    then sends all data to the Box AI Text Generation API for a comprehensive summary.
+    
+    Args:
+        request: HTTP request
+        
+    Returns:
+        JSON response with the result of the PDF generation
+    """
+    try:
+        logging.info("========== STARTING FINANCIAL SUMMARY GENERATION ==========")
+        if request.method != 'POST':
+            logging.error("Invalid method for generate_financial_summary: %s", request.method)
+            return JsonResponse({'success': False, 'message': 'Only POST method is allowed'}, status=405)
+        
+        # Parse JSON data from the request
+        try:
+            data = json.loads(request.body)
+            folder_id = data.get('folderId')
+            logging.info(f"Received request to generate financial summary for folder ID: {folder_id}")
+            
+            if not folder_id:
+                logging.error("Missing folder ID in request")
+                return JsonResponse({'success': False, 'message': 'Missing folder ID'}, status=400)
+        except json.JSONDecodeError:
+            logging.error("Invalid JSON payload in request")
+            return JsonResponse({'success': False, 'message': 'Invalid JSON payload'}, status=400)
+        
+        # Get an authenticated Box client
+        logging.info("Getting authenticated Box client")
+        box_client = get_box_client()
+        
+        # Initialize variables to prevent UnboundLocalError if AI call fails early
+        financial_summary = ""
+        financial_summary_for_pdf = "Financial summary generation failed due to an API error or no data."
+        has_structured_data = False
+        summary_data = {}
+        disclaimer_text = "_AI-generated data – human verification required._" # Define it once here
+
+        # Initialize the metadata extraction service
+        extraction_service = BoxMetadataExtractionService(box_client)
+        
+        # Define the scope for metadata
+        METADATA_SCOPE = 'enterprise_218068865'
+        
+        # Initialize the metadata application service for template mapping
+        metadata_app_service = BoxMetadataApplicationService(box_client)
+
+        # Get the folder and files
+        try:
+            logging.info(f"Accessing folder {folder_id}")
+            folder = box_client.folder(folder_id)
+            folder_info = folder.get()
+            folder_name = folder_info.name
+            logging.info(f"Processing folder: {folder_name} (ID: {folder_id})")
+            
+            files = []
+            folder_items = folder.get_items(limit=1000)
+            
+            for item in folder_items:
+                if item.type == 'file':
+                    files.append(item)
+            
+            logging.info(f"Found {len(files)} files in folder {folder_id}")
+            
+            if not files:
+                logging.error(f"No files found in folder {folder_id}")
+                return JsonResponse({'success': False, 'message': 'No files found in the folder'}, status=404)
+        except Exception as e:
+            logging.error(f"Error accessing folder {folder_id}: {e}")
+            return JsonResponse({'success': False, 'message': f'Could not access folder: {str(e)}'}, status=404)
+        
+        # Process each file and collect metadata
+        file_metadata_list = []
+        
+        for file_item in files:
+            file_id = file_item.id
+            file_name = file_item.name
+            
+            logging.info(f"Processing file metadata: {file_name} (ID: {file_id})")
+            
+            all_metadata_for_file = {}
+            document_type = None
+
+            try:
+                # Step 1: Get the financialDocumentBase metadata first
+                base_template_key = 'financialDocumentBase'
+                try:
+                    metadata_instance = file_item.metadata(scope=METADATA_SCOPE, template=base_template_key).get()
+                    template_data = {}
+                    if isinstance(metadata_instance, dict):
+                        if metadata_instance.get('type') != 'error':
+                            template_data = {k: v for k, v in metadata_instance.items() if not k.startswith('$')}
+                            logging.warning(f"Metadata instance for template '{base_template_key}' was a dict, used its items. Data: {template_data}")
+                        else:
+                            logging.warning(f"Metadata instance for template '{base_template_key}' was a dict and looks like an error: {metadata_instance}")
+                    elif hasattr(metadata_instance, 'get_all'):
+                        template_data = {key: getattr(metadata_instance, key) for key in metadata_instance.get_all() if hasattr(metadata_instance, key)}
+                    
+                    if template_data:
+                        all_metadata_for_file.update(template_data)
+                        document_type = template_data.get('documentType')
+                        logging.info(f"Retrieved and merged metadata from template '{base_template_key}' for file {file_id}. Document type: {document_type}")
+                except BoxAPIException as e:
+                    if e.status == 404:
+                        logging.debug(f"No metadata for template '{base_template_key}' found for file {file_id}")
+                        try:
+                            logging.info(f"'{base_template_key}' not found for {file_id}. Attempting to create it.")
+                            file_item.metadata(scope=METADATA_SCOPE, template=base_template_key).create({})
+                            logging.info(f"Successfully created '{base_template_key}' for {file_id}. Re-fetching.")
+                            metadata_instance = file_item.metadata(scope=METADATA_SCOPE, template=base_template_key).get()
+                            if isinstance(metadata_instance, dict):
+                                if metadata_instance.get('type') != 'error':
+                                    template_data = {k: v for k, v in metadata_instance.items() if not k.startswith('$')}
+                            elif hasattr(metadata_instance, 'get_all'):
+                                template_data = {key: getattr(metadata_instance, key) for key in metadata_instance.get_all() if hasattr(metadata_instance, key)}
+                            
+                            if template_data:
+                                all_metadata_for_file.update(template_data)
+                                document_type = template_data.get('documentType')
+                                logging.info(f"Retrieved and merged metadata from newly created template '{base_template_key}' for file {file_id}. Document type: {document_type}")
+                            else:
+                                logging.warning(f"Created '{base_template_key}' for {file_id}, but no data retrieved after re-fetch.")
+                        except Exception as create_error:
+                            logging.error(f"Failed to create or re-fetch '{base_template_key}' for {file_id} after 404: {create_error}")
+                    else:
+                        logging.warning(f"BoxAPIException fetching template '{base_template_key}' for file {file_id}: {e.status} - {e.message}")
+                except Exception as e_generic:
+                    logging.error(f"Generic error fetching template '{base_template_key}' for file {file_id}: {str(e_generic)}")
+
+                # Step 2: If documentType is found, get the specific template
+                if document_type:
+                    specific_template_key = metadata_app_service._get_template_key_for_document_type(document_type)
+                    if specific_template_key and specific_template_key != base_template_key: # Ensure it's not financialDocumentBase again
+                        logging.info(f"Attempting to fetch specific template '{specific_template_key}' for document type '{document_type}' for file {file_id}")
+                        try:
+                            metadata_instance = file_item.metadata(scope=METADATA_SCOPE, template=specific_template_key).get()
+                            template_data = {}
+                            if isinstance(metadata_instance, dict):
+                                if metadata_instance.get('type') != 'error':
+                                    template_data = {k: v for k, v in metadata_instance.items() if not k.startswith('$')}
+                                    logging.warning(f"Metadata instance for template '{specific_template_key}' was a dict, used its items. Data: {template_data}")
+                                else:
+                                    logging.warning(f"Metadata instance for template '{specific_template_key}' was a dict and looks like an error: {metadata_instance}")
+                            elif hasattr(metadata_instance, 'get_all'):
+                                template_data = {key: getattr(metadata_instance, key) for key in metadata_instance.get_all() if hasattr(metadata_instance, key)}
+
+                            if template_data:
+                                for key, value in template_data.items():
+                                    all_metadata_for_file[f"{specific_template_key}__{key}"] = value
+                                logging.info(f"Retrieved and merged metadata from template '{specific_template_key}' for file {file_id}")
+                        except BoxAPIException as e:
+                            if e.status == 404:
+                                logging.debug(f"No metadata for specific template '{specific_template_key}' found for file {file_id}")
+                            else:
+                                logging.warning(f"BoxAPIException fetching template '{specific_template_key}' for file {file_id}: {e.status} - {e.message}")
+                        except Exception as e_generic:
+                            logging.error(f"Generic error fetching template '{specific_template_key}' for file {file_id}: {str(e_generic)}")
+                    elif not specific_template_key:
+                        logging.warning(f"No specific template key found for document type '{document_type}' for file {file_id}")
+                else:
+                    logging.warning(f"Document type not found in base metadata for file {file_id}. Skipping specific template fetch.")
+            
+                if not all_metadata_for_file:
+                    logging.warning(f"No financial metadata templates found for file {file_id}. Will use empty metadata.")
+                    all_metadata_for_file = {} # Ensure it's an empty dict if nothing was found
+                else:
+                    logging.info(f"Consolidated metadata for file {file_id}: {json.dumps(all_metadata_for_file, indent=2, default=str)}")
+
+
+                # Get a text snippet from the file
+                text_snippet = ""
+                try:
+                    # Get file content for text files only
+                    if file_name.lower().endswith(('.txt', '.csv', '.md')):
+                        file_content = file_item.content()
+                        text_snippet = file_content.decode('utf-8', errors='ignore')[:1000]  # Limit to 1000 chars
+                    else:
+                        # For other file types, we'll rely on metadata
+                        text_snippet = ""
+                except Exception as content_error:
+                    logging.warning(f"Could not get content for file {file_id}: {content_error}")
+                    text_snippet = ""
+                
+                # Add file to the list
+                file_metadata_list.append({
+                    "doc_id": file_id,
+                    "metadata": all_metadata_for_file, # Use the consolidated metadata
+                    "text_snippet": text_snippet
+                })
+            
+            except Exception as file_error:
+                logging.error(f"Error processing file {file_id}: {file_error}")
+                # Continue with other files even if one fails
+        
+        if not file_metadata_list:
+            logging.error("No valid files with metadata found")
+            return JsonResponse({'success': False, 'message': 'No valid files with metadata found'}, status=404)
+        
+        logging.info(f"Prepared metadata for {len(file_metadata_list)} files")
+        
+        # Process each file individually with the specified AI agent to get summaries
+        logging.info("Processing files individually with AI agent ID 12873155")
+        
+        try:
+            # Get Box API credentials from the authenticated client
+            auth = box_client.auth
+            access_token = auth._access_token
+            
+            # Headers for API requests
+            headers = {
+                'Authorization': f'Bearer {access_token}',
+                'Content-Type': 'application/json'
+            }
+            
+            # Function to process a single file with Box AI
+            def process_file_with_ai(file_item):
+                file_id = file_item.id
+                file_name = file_item.name
+                max_retries = 2
+                retry_delay_seconds = 5
+
+                for attempt in range(max_retries + 1):
+                    try:
+                        logging.info(f"Sending Box AI request for file: {file_name} (ID: {file_id}), Attempt: {attempt + 1}")
+                        
+                        # Create payload for this specific file
+                        ai_request_payload = {
+                            "mode": "single_item_qa",
+                            "prompt": "Extract key financial data from this document. Focus on: account details (account name, account number, institution, balances, unrealized gains/losses, cost basis, as of date), loan information (principal, interest rate, maturity), investment holdings (especially by sector or type), and important dates. Provide a concise summary of these points.",
+                            "items": [
+                                {
+                                    "id": file_id,
+                                    "type": "file"
+                                }
+                            ],
+                            "ai_agent": {
+                                "id": "12873155",
+                                "type": "ai_agent_id"
+                            }
+                        }
+                        
+                        # Make the request to Box AI Ask endpoint
+                        response = requests.post(
+                            'https://api.box.com/2.0/ai/ask',
+                            headers=headers,
+                            json=ai_request_payload,
+                            timeout=30 # Adding a timeout for the request
+                        )
+                        
+                        if response.status_code not in [200, 201, 202]:
+                            logging.error(f"Box AI API error for file {file_id} (Attempt {attempt+1}): {response.status_code} - {response.text}")
+                            if attempt < max_retries and response.status_code >= 500: # Retry on server errors
+                                logging.info(f"Retrying in {retry_delay_seconds} seconds...")
+                                import time
+                                time.sleep(retry_delay_seconds)
+                                continue
+                            return None  # Skip this file after retries or for non-retryable errors
+                        
+                        ai_response = response.json()
+                        logging.info(f"Received response from Box AI for file {file_name}")
+                        file_summary = ai_response.get('answer', '')
+                        
+                        if not file_summary:
+                            logging.warning(f"No summary generated for file {file_name}")
+                            return None
+                        
+                        return {
+                            'file_id': file_id,
+                            'file_name': file_name,
+                            'summary': file_summary
+                        }
+
+                    except requests.exceptions.RequestException as req_err:
+                        logging.error(f"RequestException for file {file_id} (Attempt {attempt+1}): {req_err}")
+                        if attempt < max_retries:
+                            logging.info(f"Retrying in {retry_delay_seconds} seconds...")
+                            import time
+                            time.sleep(retry_delay_seconds)
+                        else:
+                            logging.error(f"Max retries reached for file {file_id}. Giving up.")
+                            return None
+                return None # Should be unreachable if loop logic is correct
+            
+            # Store individual file summaries
+            file_summaries = []
+            
+            # Process files in parallel using ThreadPoolExecutor
+            # Adjust max_workers based on number of files and rate limits
+            max_workers = min(5, len(files))  # Use at most 5 threads but no more than we have files
+            logging.info(f"Processing {len(files)} files in parallel with ThreadPoolExecutor (max_workers={max_workers})")
+            
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                # Submit all tasks and create a mapping of futures to files
+                future_to_file = {executor.submit(process_file_with_ai, file_item): file_item for file_item in files}
+                
+                # Process results as they complete
+                for future in as_completed(future_to_file):
+                    file_item = future_to_file[future]
+                    try:
+                        result = future.result()
+                        if result:
+                            file_summaries.append(result)
+                            logging.info(f"Completed processing for file: {file_item.name}")
+                        else:
+                            logging.warning(f"No result returned for file: {file_item.name}")
+                    except Exception as exc:
+                        logging.error(f"Error processing file {file_item.name}: {exc}")
+            
+            logging.info(f"Parallel processing complete. Processed {len(file_summaries)} files successfully out of {len(files)} total files.")
+            
+            # Combine all file summaries into one comprehensive summary using Box AI Text Gen
+            if not file_summaries:
+                logging.error("No summaries were generated for any files")
+                return JsonResponse({
+                    'success': False, 
+                    'message': 'No summaries generated by AI for any files'
+                }, status=500)
+            
+            # Now send all the collected data to the Box AI Text Generation API
+            logging.info("Sending all data to Box AI Text Generation API with agent ID 12873155")
+            
+            # Prepare a condensed version of document details for the prompt string
+            prompt_input_docs_array_for_stringification = []
+            for original_file_meta_entry in file_metadata_list: # file_metadata_list has original full metadata
+                doc_id = original_file_meta_entry['doc_id']
+                
+                raw_metadata = original_file_meta_entry['metadata']
+                metadata_dict_for_selection = {}
+                if hasattr(raw_metadata, 'response_object'): # Handle Box SDK Resource object
+                    metadata_dict_for_selection = raw_metadata.response_object
+                elif isinstance(raw_metadata, dict):
+                    metadata_dict_for_selection = raw_metadata
+                
+                # Select only a few key, non-bulky metadata fields for the prompt string
+                # Keep essential base fields and allow for more specific fields if available
+                # This part needs to be smarter based on the richer metadata we now collect
+                selected_metadata_for_prompt = {}
+                if metadata_dict_for_selection:
+                    # Prioritize specific, rich fields if they exist from various templates
+                    # These keys should align somewhat with OUTPUT_SCHEMA needs
+                    priority_keys = [
+                        'documentType', 'accountHolderName', 'institutionName', 'account_number_last4', 
+                        'ending_balance', 'loanPrincipalAmount', 'interestRate',
+                        'statementDate', 'documentDate', 'taxYear', 
+                        'totalAssets', 'totalLiabilities', 'netWorth'
+                        # Greatly reduced this list to minimize prompt length
+                    ]
+                    simple_value_types = (str, int, float, bool)
+
+                    # Add base fields from the reduced priority_keys list
+                    for key in priority_keys: # Iterate through the new shorter list
+                        if key in metadata_dict_for_selection and isinstance(metadata_dict_for_selection.get(key), simple_value_types):
+                            selected_metadata_for_prompt[key] = metadata_dict_for_selection.get(key)
+                    
+                    # REMOVED the loop that iterates through all metadata_dict_for_selection.items()
+                    # to prevent adding too many non-essential fields.
+                                
+                if not selected_metadata_for_prompt and metadata_dict_for_selection: # Add placeholder if dict had keys but none selected
+                     selected_metadata_for_prompt = {"info": "minimal_metadata_selected_for_prompt"}
+
+
+                # Get corresponding AI summary (from /ai/ask step) and truncate it for the prompt string
+                individual_summary_obj = next((s for s in file_summaries if s['file_id'] == doc_id), None)
+                full_individual_summary = individual_summary_obj['summary'] if individual_summary_obj else ""
+                # Reduce length of truncated summary
+                truncated_individual_summary_for_prompt = (full_individual_summary[:50] + '...') if len(full_individual_summary) > 50 else full_individual_summary
+                if not truncated_individual_summary_for_prompt:
+                    truncated_individual_summary_for_prompt = "Brief context."
+
+                prompt_input_docs_array_for_stringification.append({
+                    "doc_id": doc_id,
+                    "metadata": selected_metadata_for_prompt, # Condensed metadata
+                    "text_snippet": truncated_individual_summary_for_prompt # Truncated summary
+                })
+            
+            # Log the structure being prepared for the prompt string (for one doc, to check format)
+            if prompt_input_docs_array_for_stringification:
+                logging.info(f"Sample structure for DOCS in prompt (first doc): {json.dumps(prompt_input_docs_array_for_stringification[0], indent=2)}")
+
+            docs_json_for_prompt = json.dumps(prompt_input_docs_array_for_stringification)
+            
+            # Log the length of the docs_json_for_prompt
+            logging.info(f"Length of docs_json_for_prompt: {len(docs_json_for_prompt)}")
+
+            # System prompt instructing AI to use DOCS in prompt as overview, and items for full detail
+            system_prompt = """SYSTEM
+You are "WealthAI Analyst". Your task is to analyze financial information to generate a consolidated JSON summary. The `items` array in this API call contains a single primary document for context. However, the main source for your multi-document analysis and synthesis MUST be the `DOCS` JSON array provided in the USER prompt string below. This `DOCS` array contains an overview (doc_id, selected metadata, and a truncated summary snippet) for ALL relevant documents.
+
+You MUST process information from ALL documents described in the `DOCS` JSON array in the USER prompt to accurately populate the OUTPUT_SCHEMA.
+
+OUTPUT_SCHEMA:
+{
+  "accounts": [
+    {
+      "doc_id": "", "account_name": "", "institution": "", "account_number_last4": "",
+      "account_type": "", "asset_class": "", "ending_balance": null,
+      "unrealized_gain_loss": null, "cost_basis": null, "as_of_date": ""
+    }
+  ],
+  "loans": [
+    {
+      "doc_id": "", "loan_name": "", "principal_balance": null, "interest_rate": null, "maturity_date": ""
+    }
+  ],
+  "aggregates": {
+    "total_assets": null, "total_liabilities": null, "net_worth": null,
+    "total_unrealized_gains": null, "total_unrealized_losses": null,
+    "investments_by_sector": {
+      "Technology": 0.0, "Financials": 0.0, "Healthcare": 0.0, "Energy": 0.0,
+      "Real Estate": 0.0, "Broad Market": 0.0, "Unknown": 0.0
+    }
+  },
+  "flags": [ { "severity": "warning|error", "message": "" } ]
+}
+
+EXAMPLE_OUTPUT:
+```json
+{
+  "accounts": [
+    {
+      "doc_id": "file_12345",
+      "account_name": "Retirement Savings Account",
+      "institution": "FutureInvest Bank",
+      "account_number_last4": "7890",
+      "account_type": "401k",
+      "asset_class": "Mixed Allocation",
+      "ending_balance": 152000.75,
+      "unrealized_gain_loss": 12500.00,
+      "cost_basis": 139500.75,
+      "as_of_date": "2023-12-31"
+    }
+  ],
+  "loans": [
+    {
+      "doc_id": "file_67890",
+      "loan_name": "Primary Mortgage",
+      "principal_balance": 275000.00,
+      "interest_rate": 3.75,
+      "maturity_date": "2045-06-01"
+    }
+  ],
+  "aggregates": {
+    "total_assets": 175000.00,
+    "total_liabilities": 275000.00,
+    "net_worth": -100000.00,
+    "total_unrealized_gains": 15000.00,
+    "total_unrealized_losses": 2500.00,
+    "investments_by_sector": {
+      "Technology": 30.5,
+      "Financials": 20.0,
+      "Healthcare": 15.0,
+      "Energy": 5.5,
+      "Real Estate": 10.0,
+      "Broad Market": 19.0,
+      "Unknown": 0.0
+    }
+  },
+  "flags": [
+    {
+      "severity": "warning",
+      "message": "Document file_abcde appears to be incomplete."
+    }
+  ]
+}
+```
+
+RULES:
+- Your primary data source for synthesis is the `DOCS` JSON array in the USER prompt. Use the single item in the API `items` array for general context if needed, but base your detailed extraction and aggregation on the `DOCS` array from the prompt string.
+- The entire output referring to the financial data MUST be a single, strictly valid JSON object.
+- Your response's JSON portion MUST start with the opening curly brace `{` and MUST end with the final closing curly brace `}`. NO leading or trailing characters, whitespace, or text of any kind are permitted immediately before the opening `{` or immediately after the closing `}` of the JSON object.
+- No other text, explanations, or markdown should surround the JSON object itself, except for the mandatory disclaimer which follows on a NEW LINE after the JSON object is fully complete.
+- Strictly follow the format and structure shown in the `EXAMPLE_OUTPUT`. The `EXAMPLE_OUTPUT` is a literal template. Your output must match this structure perfectly.
+- All keys and ALL string values within the JSON structure MUST be enclosed in double quotes (e.g., "key": "value"). Single quotes are NOT permitted.
+- All numeric values MUST be numbers (e.g. 123.45 or 0), not strings (e.g. "123.45"). This is especially important for all fields in `aggregates.investments_by_sector` which must be numbers (e.g., 0.0 if no data).
+- Keys must EXACTLY match the `OUTPUT_SCHEMA` and `EXAMPLE_OUTPUT`. Pay close attention to spelling, spacing, and case. Do not use `null` or any non-string value as a key name.
+- The JSON output MUST NOT contain any comments (e.g., // or /* */).
+- Do NOT use ellipses (...) or any other non-JSON placeholders within the JSON to indicate omitted or truncated data. All JSON arrays and objects must be complete as per the schema. Use `null`, empty strings `""`, or empty arrays `[]` for missing or not-applicable fields as appropriate for their type.
+- If a numeric value is absent, return null, not 0 (except for `investments_by_sector` which should default to 0.0 if no data for a specific sector).
+- If an optional field from the `OUTPUT_SCHEMA` (non-numeric) has no data or is not applicable, include the key in the JSON with a value of `null`. For optional list fields that are empty, use an empty list `[]`. For optional string fields, `null` is preferred over an empty string if the data is truly absent. Do not omit keys defined in the `OUTPUT_SCHEMA`.
+- Adhere strictly to the `OUTPUT_SCHEMA`. Do not add any keys not defined in the schema. Do not add any commentary, notes, or explanations *inside* the JSON structure.
+- Ensure all opening braces `{` and brackets `[` are correctly matched with closing braces `}` and brackets `]`.
+- Ensure no trailing commas exist in any objects or arrays.
+- Mask account numbers to last 4 digits.
+- Temperature must be ≤ 0.2. Be deterministic.
+- The mandatory disclaimer line "_AI‑generated data – human verification required._" MUST be appended as a separate line *after* the final closing brace `}` of the valid JSON object. It must NOT be part of the JSON object itself.
+END OF SYSTEM"""
+            
+            # Construct the user prompt with the condensed docs array
+            user_prompt_content = f"DOCS = {docs_json_for_prompt}"
+            
+            # Combine system and user prompt
+            prompt = f"{system_prompt}\n\n───────────────────────────────────────────────────────────────────────────────\n\nUSER\n{user_prompt_content}"
+            
+            # Log the total length of the prompt being sent to Text Gen API
+            logging.info(f"Length of system_prompt: {len(system_prompt)}")
+            logging.info(f"Length of user_prompt_content (with DOCS): {len(user_prompt_content)}")
+            logging.info(f"Total length of prompt for Text Gen API: {len(prompt)}")
+
+            # Define the single item for the API call, ensuring files are available.
+            if not files:
+                logging.error("No files available to select a context item for Text Gen API. Will proceed to fallback.")
+                # Raising an exception here will be caught by the ai_error handler and trigger fallback.
+                raise ValueError("No files available for Text Gen API context item, cannot make API call.")
+            
+            # If files are available, define valid_file_id and the single_item_for_api_call
+            valid_file_id = files[0].id 
+            logging.info(f"Using file ID {valid_file_id} as the single context item for Text Gen API.")
+            single_item_for_api_call = [{"id": valid_file_id, "type": "file"}]
+
+            # Create the payload for the Box AI Text Generation API
+            # First check that we have valid files to work with
+            if not files or len(files) == 0:
+                logging.error("No valid files available for Text Gen API")
+                return JsonResponse({
+                    'success': False, 
+                    'message': 'No valid files available for processing'
+                }, status=500)
+                
+            # All items in the Text Gen API must exist and be valid
+            logging.info(f"Using file ID {valid_file_id} for Text Gen API")
+            
+            # Create dialogue history in the format expected by Box API
+            from datetime import datetime
+            import pytz
+            
+            # Format current time in ISO 8601 format
+            current_time = datetime.now(pytz.utc).isoformat()
+            
+            # Define the new ai_agent configuration for generic model usage
+            generic_model_agent_config = {
+                "type": "ai_agent_text_gen",
+                "basic_gen": {
+                    "model": "azure__openai__gpt_4o_mini", # Changed to a valid model from the allowed list
+                    "temperature": 0.1
+                }
+            }
+
+            # Create dialogue history with one entry
+            dialogue_history = [
+                {
+                    "prompt": "Initial request for financial summary generation.",
+                    "response": "Acknowledged. Ready to process documents.",
+                    "created_at": current_time
+                }
+            ]
+            
+            # First approach with dialogue history, using generic model
+            text_gen_payload = {
+                "prompt": prompt,
+                "items": single_item_for_api_call, # Use only one item
+                "dialogue_history": dialogue_history,
+                "ai_agent": generic_model_agent_config
+            }
+            
+            # Second approach - simpler payload without dialogue history, using generic model
+            # NOW using the FULL financial prompt for this second attempt.
+            alternate_payload = {
+                "prompt": prompt, # Using the FULL financial prompt
+                "items": single_item_for_api_call, 
+                "ai_agent": generic_model_agent_config
+            }
+            
+            logging.info(f"Full prompt for financial summary with a generic model. Prompt length: {len(prompt)}")
+            logging.info(f"Generic model for text generation: {generic_model_agent_config['basic_gen']['model']}")
+            logging.info(f"Items count for API calls: {len(single_item_for_api_call)}")
+            if single_item_for_api_call:
+                logging.info(f"Item ID in API call: {single_item_for_api_call[0]['id']}")
+            # logging.info(f"Dialogue history: {len(text_gen_payload.get('dialogue_history', []))} entries") # Commented out as it's less relevant now
+            
+            # We now directly use the 'alternate_payload' which is configured for the full prompt 
+            # without dialogue_history, using the generic model.
+            logging.info("Preparing to send request to Box AI Text Generation endpoint (Full Prompt, NO Dialogue History, Generic Model)...")
+            
+            # Log details for the payload being used
+            logging.info(f"Payload Prompt (first 100 chars): {alternate_payload['prompt'][:100]}...")
+            logging.info(f"Payload Items: {alternate_payload['items']}")
+            logging.info(f"Payload Agent: {alternate_payload['ai_agent']}")
+
+            response = requests.post(
+                'https://api.box.com/2.0/ai/text_gen',
+                headers=headers,
+                json=alternate_payload 
+            )
+            
+            # Check the response status from this single attempt
+            if response.status_code not in [200, 201, 202]:
+                error_details = response.text
+                try:
+                    error_json = response.json()
+                    error_details = json.dumps(error_json, indent=2)
+                except:
+                    pass
+                
+                logging.error(f"All Box AI Text Gen API approaches failed: {response.status_code} - {error_details}")
+                
+                # Fallback to a different approach - use a manually constructed JSON with our summary data
+                logging.info("Falling back to manual JSON construction")
+                
+                # Gather important data from file summaries
+                accounts = []
+                loans = []
+                aggregates = {
+                    "total_assets": 0,
+                    "total_liabilities": 0
+                }
+                flags = []
+                
+                # Extract data points from the individual file summaries
+                for summary_item in file_summaries:
+                    file_name = summary_item['file_name']
+                    summary_text = summary_item['summary']
+                    
+                    # Look for account information in the summary
+                    if 'account' in file_name.lower() or 'statement' in file_name.lower():
+                        # Try to extract account info
+                        accounts.append({
+                            "account_name": file_name.replace('.pdf', '').replace('.docx', ''),
+                            "institution": "Unknown", 
+                            "account_type": "Unknown",
+                            "ending_balance": 0  # Default to 0
+                        })
+                    
+                    # Look for loan information
+                    if 'loan' in file_name.lower() or 'mortgage' in file_name.lower():
+                        loans.append({
+                            "loan_name": file_name.replace('.pdf', '').replace('.docx', ''),
+                            "principal_balance": 0,
+                            "interest_rate": 0,
+                            "maturity_date": "Unknown"
+                        })
+                    
+                    # Add any critical issues as flags
+                    flags.append({
+                        "severity": "INFO",
+                        "message": f"Generated summary for {file_name}"
+                    })
+                
+                # Compute some basic aggregates
+                aggregates["net_worth"] = aggregates["total_assets"] - aggregates["total_liabilities"]
+                
+                # Create a structured JSON summary
+                summary_data = {
+                    "accounts": accounts,
+                    "loans": loans,
+                    "aggregates": aggregates,
+                    "flags": flags,
+                }
+                
+                # Convert the data to JSON string
+                financial_summary = json.dumps(summary_data, indent=2)
+                has_structured_data = True
+                
+                # Log the fallback summary
+                logging.info(f"Created fallback summary with {len(accounts)} accounts and {len(loans)} loans")
+                logging.debug(f"Fallback summary: {financial_summary[:500]}...")
+            else:
+                ai_response = response.json()
+                logging.info(f"Received response from Box AI Text Generation API")
+                
+                # Extract the generated financial summary 
+                financial_summary = ai_response.get('answer', '')
+                
+                if not financial_summary:
+                    logging.error("No summary generated by Box AI Text Gen API")
+                    
+                    # Fallback to the old method of combining summaries
+                    logging.info("Falling back to old method of combining summaries due to empty Text Gen response")
+                    combined_summary = "# FINANCIAL SUMMARY\n\n"
+                    for summary_item in file_summaries:
+                        combined_summary += f"## {summary_item['file_name']}\n\n"
+                        combined_summary += f"{summary_item['summary']}\n\n"
+                        combined_summary += "---\n\n"
+                    
+                    # Add timestamp
+                    combined_summary += f"\nGenerated on {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+                    
+                    financial_summary = combined_summary
+                    has_structured_data = False
+                    summary_data = {}
+                else:
+                    # Log the summary for debugging (first 500 chars only to avoid log bloat)
+                    logging.info(f"Financial summary generated by Box AI (first 500 chars): {financial_summary[:500]}...")
+                    
+                    text_from_ai = financial_summary.strip()
+
+                    # Step 1 (Moved Up): Remove markdown code block specifiers (e.g., ```json ... ```) FIRST
+                    try:
+                        # Remove if it starts with ```json and ends with ```
+                        if text_from_ai.startswith("```json") and text_from_ai.endswith("```"):
+                            text_from_ai = text_from_ai[len("```json"):-len("```")]
+                        # Remove if it just starts with ``` and ends with ```
+                        elif text_from_ai.startswith("```") and text_from_ai.endswith("```"):
+                            text_from_ai = text_from_ai[len("```"):-len("```")]
+                        text_from_ai = text_from_ai.strip() # Strip again after potential markdown removal
+                        logging.info("Attempted to remove markdown code block specifiers (pre-check).")
+                    except Exception as markdown_strip_error:
+                        logging.warning(f"Error during markdown code block stripping (pre-check): {markdown_strip_error}")
+
+                    # Basic check if the response looks like JSON before detailed cleaning
+                    if not (text_from_ai.startswith('{') and text_from_ai.endswith('}')):
+                        logging.warning(f"AI response does not start/end with braces AFTER markdown stripping. Attempting more robust JSON extraction. Response snippet: {text_from_ai[:200]}")
+                        # Attempt to extract JSON even if it doesn't strictly start/end with braces
+                        first_brace_index = text_from_ai.find('{')
+                        last_brace_index = text_from_ai.rfind('}')
+
+                        if first_brace_index != -1 and last_brace_index != -1 and last_brace_index > first_brace_index:
+                            potential_json_block = text_from_ai[first_brace_index : last_brace_index + 1]
+                            logging.info(f"Extracted potential JSON block from index {first_brace_index} to {last_brace_index}. Length: {len(potential_json_block)}")
+                            try:
+                                # Try standard parsing first
+                                try:
+                                    summary_data = json.loads(potential_json_block)
+                                    has_structured_data = True
+                                    logging.info("Successfully parsed JSON data from AI response after cleaning.")
+                                except json.JSONDecodeError:
+                                    # If that fails, try one more aggressive approach: find the first { and last }
+                                    # This handles cases where there's AI explanation text after the JSON
+                                    logging.warning("Standard JSON parsing failed. Attempting more aggressive extraction.")
+                                    first_brace = potential_json_block.find('{')
+                                    last_brace = potential_json_block.rfind('}')
+                                    
+                                    if first_brace != -1 and last_brace != -1 and first_brace < last_brace:
+                                        json_candidate = potential_json_block[first_brace:last_brace+1]
+                                        
+                                        # Remove common Box AI text markers that might be present in the JSON
+                                        box_disclaimer_patterns = [
+                                            r'\\n\\n_AI-generated data – human verification required._.*$', 
+                                            r'\n\n_AI-generated data – human verification required._.*$',
+                                            r'\\n\\nThis financial summary is generated.*$',
+                                            r'\n\nThis financial summary is generated.*$'
+                                        ]
+                                        
+                                        for pattern in box_disclaimer_patterns:
+                                            json_candidate = re.sub(pattern, '', json_candidate, flags=re.DOTALL)
+                                        
+                                        # Fix literal \n sequences that might be causing issues
+                                        json_candidate = json_candidate.replace('\\n', '\n')
+                                        # Fix escaped quotes in the wrong direction
+                                        json_candidate = json_candidate.replace('\\"', '"').replace('\\"', '"')
+                                        
+                                        # Handle problematic control characters and common JSON syntax errors
+                                        json_candidate = ''.join(ch for ch in json_candidate if ord(ch) >= 32 or ch in '\n\r\t')
+                                        
+                                        # Fix common JSON syntax errors seen in AI outputs
+                                        # Fix lines ending with a comma followed by a closing bracket
+                                        json_candidate = re.sub(r',\s*(\}|\])', r'\1', json_candidate)
+                                        
+                                        # Fix line ending with a quote that should be followed by a comma
+                                        json_candidate = re.sub(r'"\s*\n\s*"', '",\n"', json_candidate)
+                                        
+                                        # Fix null values with trailing characters
+                                        json_candidate = re.sub(r'null,?\s*\n"', 'null\n,"', json_candidate)
+                                        json_candidate = re.sub(r'null([^,}\\])', r'null,\1', json_candidate)
+                                        
+                                        # Log the modified JSON before parsing attempt
+                                        logging.info(f"Attempting to parse JSON (length: {len(json_candidate)})")
+                                        
+                                        # Advanced JSON repair function to handle malformed JSON
+                                        try:
+                                            # Fix specific error around line 48 (where previous errors occurred)
+                                            lines = json_candidate.split('\n')
+                                            repaired_lines = []
+                                            
+                                            # Process each line to ensure proper JSON structure
+                                            for i, line in enumerate(lines):
+                                                # Attempt to fix anomalies around problem areas
+                                                if i >= 45 and i <= 50:  # Focus on problematic region
+                                                    logging.info(f"Special handling for line {i}: {line}")
+                                                    
+                                                    # Fix null values without proper comma or formatting
+                                                    if 'null' in line and not line.strip().endswith(',') and not line.strip().endswith('}') and not line.strip().endswith(']'):
+                                                        line = line.rstrip() + ','
+                                                        logging.info(f"Added comma to null line: {line}")
+                                                    
+                                                    # Fix string values with unexpected quote placement
+                                                    quote_count = line.count('"')
+                                                    if quote_count % 2 != 0:  # Odd number of quotes
+                                                        # Find misplaced quotes or stray quotes
+                                                        if line.strip().endswith('"') and '",' not in line:
+                                                            line = line.rstrip() + ','
+                                                            logging.info(f"Added comma after value: {line}")
+                                            
+                                                # General fixes for all lines
+                                                # Fix lines with property name but no value
+                                                if ':' in line and not line.strip().endswith(',') and not line.strip().endswith('}') and not line.strip().endswith(']'):
+                                                    parts = line.split(':', 1)
+                                                    if len(parts) == 2 and not parts[1].strip():
+                                                        line = parts[0] + ': null,'
+                                                        logging.info(f"Added null value to empty property: {line}")
+                                            
+                                                repaired_lines.append(line)
+                                            
+                                            # Rebuild the JSON string
+                                            repaired_json = '\n'.join(repaired_lines)
+                                            
+                                            # Final fixes for potential balance issues
+                                            # Count opening and closing braces/brackets
+                                            open_braces = repaired_json.count('{')
+                                            close_braces = repaired_json.count('}')
+                                            open_brackets = repaired_json.count('[')
+                                            close_brackets = repaired_json.count(']')
+                                            
+                                            # Fix any imbalance
+                                            if open_braces > close_braces:
+                                                repaired_json += '}' * (open_braces - close_braces)
+                                                logging.info(f"Added {open_braces - close_braces} closing braces to balance JSON")
+                                            if open_brackets > close_brackets:
+                                                repaired_json += ']' * (open_brackets - close_brackets)
+                                                logging.info(f"Added {open_brackets - close_brackets} closing brackets to balance JSON")
+                                            
+                                            # Try the repaired JSON first
+                                            try:
+                                                summary_data = json.loads(repaired_json)
+                                                has_structured_data = True
+                                                logging.info("Successfully parsed JSON after advanced repairs")
+                                                json_candidate = repaired_json  # Use the repaired version for later operations
+                                            except json.JSONDecodeError as repair_error:
+                                                logging.warning(f"Advanced JSON repair didn't fix parsing issue: {repair_error}")
+                                                # Continue to try parsing the original json_candidate
+                                        except Exception as repair_attempt_error:
+                                            logging.warning(f"Error during advanced JSON repair attempt: {repair_attempt_error}")
+                                            # Continue with the original json_candidate
+                                    
+                                    try:
+                                        summary_data = json.loads(json_candidate)
+                                        has_structured_data = True
+                                        logging.info("Successfully parsed JSON after extracting from { to } bounds and removing Box AI disclaimer text.")
+                                    except json.JSONDecodeError as e:
+                                        raise e  # Re-raise to be caught by outer exception handler
+                                else:
+                                    raise json.JSONDecodeError("Could not find valid JSON object bounds", cleaned_json_candidate, 0)
+
+                                # For PDF/TXT, use the re-serialized, validated JSON.
+                                financial_summary_for_pdf = json.dumps(summary_data, indent=2) 
+                                # Disclaimer will be added by PDF/TXT generation logic.
+                            except json.JSONDecodeError as json_error:
+                                logging.warning(f"Could not parse JSON from AI response even after extraction: {json_error}")
+                                # Handle the error in the outer try-except block
+                                raise json_error
+                    else:
+                        logging.warning("Could not find a plausible JSON block (missing '{' or '}' or in wrong order). Treating as unstructured.")
+                        has_structured_data = False
+                        # financial_summary_for_pdf will be set based on this, including disclaimer, in the PDF generation block
+                
+                # If has_structured_data is True here, it means the direct parse of potential_json_block succeeded.
+                # If has_structured_data is False, but we successfully extracted a potential_json_block, 
+                # text_from_ai is now that block, and we proceed to cleaning.
+                # If no plausible block was found, has_structured_data remains False, and we skip detailed cleaning.
+
+                if not has_structured_data and not (text_from_ai.startswith('{') and text_from_ai.endswith('}')):
+                    # This condition means we couldn't find/parse a clear JSON block initially, 
+                    # and the (potentially modified) text_from_ai still doesn't look like JSON.
+                    logging.warning(f"After initial extraction attempt, text still not JSON-like. Treating as unstructured. Snippet: {text_from_ai[:200]}")
+                    # No need to set has_structured_data to False again, it's already False or handled.
+                    # The PDF generation will use the raw (or initially extracted but unparsable) text_from_ai.
+                elif not has_structured_data: # We have a potential block (text_from_ai), but it didn't parse directly. Try cleaning.
+                    logging.info("Proceeding with detailed cleaning on the extracted or original text_from_ai.")
+                    
+                    # text_from_ai is either the original markdown-stripped response (if it started/ended with {}),
+                    # or it's the potential_json_block if initial robust extraction was used and direct parse failed.
+
+                    # Apply smart quote conversion directly to text_from_ai
+                    try:
+                        text_from_ai = text_from_ai.replace("\u201c", "\"")  # " (left double quote)
+                        text_from_ai = text_from_ai.replace("\u201d", "\"")  # " (right double quote)
+                        text_from_ai = text_from_ai.replace("\u2018", "'")  # ' (left single quote)
+                        text_from_ai = text_from_ai.replace("\u2019", "'")  # ' (right single quote/apostrophe)
+                        logging.info("Attempted to convert smart quotes to straight quotes on text_from_ai.")
+                    except Exception as smart_quote_error:
+                        logging.warning(f"Error during smart quote conversion: {smart_quote_error}")
+
+                    # The cleaned_json_candidate will be text_from_ai after smart quotes.
+                    # No further brace-balancing extraction (old NEW Step 1.2) is needed here, as text_from_ai 
+                    # should already represent the most plausible JSON block we have.
+                    cleaned_json_candidate = text_from_ai
+                    logging.info(f"cleaned_json_candidate is now text_from_ai (potential_json_block or original if bracketed). Length: {len(cleaned_json_candidate)}")
+
+                    # 3. Remove JS-style comments (existing - now on cleaned_json_candidate)
+                    try:
+                        cleaned_json_candidate = re.sub(r"//.*", "", cleaned_json_candidate)
+                        cleaned_json_candidate = re.sub(r"/\\*.*?\\*/", "", cleaned_json_candidate, flags=re.DOTALL)
+                        logging.info("Attempted to remove JS-style comments.")
+                    except Exception as comment_removal_error:
+                        logging.warning(f"Error during JS-style comment removal: {comment_removal_error}")
+
+                    # 4. Apply other regex fixes (Simplified Single Pass)
+                    try:
+                        # Step 4a: Aggressively double-quote potential keys
+                        # This regex looks for an opening brace, comma, or whitespace, followed by optional single quotes,
+                        # then the key (captured as non-special JSON chars), followed by optional single quotes, and a colon.
+                        
+                        # Fix keys that follow opening brace, comma, or whitespace
+                        cleaned_json_candidate = re.sub(
+                            r'([{\[,\s])\s*(\')?([^",:{}[\]]+?)(\')?(\s*:)',
+                            r'\1"\3"\5',
+                            cleaned_json_candidate
+                        )
+                        
+                        # Fix keys at the beginning of the string
+                        cleaned_json_candidate = re.sub(
+                            r'^\s*(\')?([^",:{}[\]]+?)(\')?(\s*:)',
+                            r'"\2"\4',
+                            cleaned_json_candidate
+                        )
+                        
+                        logging.info("Attempted to double-quote keys (fixed to not corrupt existing double-quotes and handle optional single quotes around keys).")
+
+                        # Step 4b: Fix single-quoted string VALUES to be double-quoted.
+                        cleaned_json_candidate = re.sub(r":\\s*\'([^\']*)\'", r': "\\1"', cleaned_json_candidate)
+                        logging.info("Attempted to fix single-quoted string VALUES (simplified).")
+                        
+                        # Step 4b.1: Remove/replace "..." placeholders
+                        cleaned_json_candidate = re.sub(r'\\"?(?:\\.{3}|…)\\"?(?=\\s*[,}\\]\\"\\s])', '\\"omitted_data_placeholder\\"', cleaned_json_candidate)
+                        cleaned_json_candidate = re.sub(r':\\s*(?:\\.{3}|…)(?=\\s*[,}\\]])', ': \\"omitted_data_placeholder\\"', cleaned_json_candidate)
+                        logging.info("Attempted to remove/replace '...' placeholders.")
+
+                        # Step 4b.1.1: Fix double double-quoted keys like ""Real Estate"":0 to "Real Estate":0
+                        cleaned_json_candidate = re.sub(r'""([^"]+)""(\\s*:)', r'"\1"\2', cleaned_json_candidate)
+                        logging.info("Attempted to fix double double-quoted keys.")
+
+                        # NEW Step 4b.1.2: Add missing commas between adjacent objects or arrays
+                        # e.g. { ... } { ... } -> { ... }, { ... } or [ ... ] [ ... ] -> [ ... ], [ ... ]
+                        cleaned_json_candidate = re.sub(r'([}\]])(\s+)(?=[{\[])', r'\1,\2', cleaned_json_candidate)
+                        logging.info("Attempted to add missing commas between adjacent objects/arrays.")
+
+                        # Step 4b.2: Attempt to add missing commas between key-value pairs (conservative)
+                        json_value_pattern = r'(?:\\"[^\\"\\\\]*(?:\\\\.[^\\"\\\\]*)*\\"|\\btrue\\b|\\bfalse\\b|\\bnull\\b|-?\\d+(?:\\.\\d+)?(?:[eE][+-]?\\d+)?)'
+                        cleaned_json_candidate = re.sub(rf'({json_value_pattern})(\\s+)(?=\\"[a-zA-Z0-9_ -]+\\"\\s*:)', r'\\1,\\2', cleaned_json_candidate)
+                        logging.info("Attempted to add missing commas (conservative).")
+
+                        # Step 4c: Remove trailing commas before closing curly or square brackets
+                        cleaned_json_candidate = re.sub(r",\\s*([}\\]])", r"\\1", cleaned_json_candidate)
+                        logging.info("Attempted to remove trailing commas (simplified).")
+                        
+                        # Replace NaN, Infinity, -Infinity with null
+                        cleaned_json_candidate = re.sub(r'\\bNaN\\b', 'null', cleaned_json_candidate, flags=re.IGNORECASE)
+                        cleaned_json_candidate = re.sub(r'\\bInfinity\\b', 'null', cleaned_json_candidate, flags=re.IGNORECASE)
+                        cleaned_json_candidate = re.sub(r'\\b-Infinity\\b', 'null', cleaned_json_candidate, flags=re.IGNORECASE)
+                        logging.info("Attempted to replace NaN/Infinity with null.")
+
+                        # NEW: Fix cases like "key": } or "key":] by inserting null
+                        cleaned_json_candidate = re.sub(r'(\\"\\s*[^\\"\\s]+\\s*\\"\\s*:\\s*)(\\s*[\}\\]])', r'\\1null\\2', cleaned_json_candidate)
+                        logging.info("Attempted to fix 'key:}' or 'key:]' by inserting null.")
+                        
+                    except Exception as regex_error:
+                        logging.warning(f"Error during simplified regex JSON cleaning: {regex_error}")
+
+                    # 5. Attempt to parse
+                    try:
+                        # Try standard parsing first
+                        try:
+                            summary_data = json.loads(cleaned_json_candidate)
+                            has_structured_data = True
+                            logging.info("Successfully parsed JSON data from AI response after cleaning.")
+                        except json.JSONDecodeError:
+                            # If that fails, try one more aggressive approach: find the first { and last }
+                            # This handles cases where there's AI explanation text after the JSON
+                            logging.warning("Standard JSON parsing failed. Attempting more aggressive extraction.")
+                            first_brace = cleaned_json_candidate.find('{')
+                            last_brace = cleaned_json_candidate.rfind('}')
+                            
+                            if first_brace != -1 and last_brace != -1 and first_brace < last_brace:
+                                json_candidate = cleaned_json_candidate[first_brace:last_brace+1]
+                                
+                                # Remove common Box AI text markers that might be present in the JSON
+                                box_disclaimer_patterns = [
+                                    r'\\n\\n_AI-generated data – human verification required._.*$', 
+                                    r'\n\n_AI-generated data – human verification required._.*$',
+                                    r'\\n\\nThis financial summary is generated.*$',
+                                    r'\n\nThis financial summary is generated.*$'
+                                ]
+                                
+                                for pattern in box_disclaimer_patterns:
+                                    json_candidate = re.sub(pattern, '', json_candidate, flags=re.DOTALL)
+                                    
+                                # Fix literal \n sequences that might be causing issues
+                                json_candidate = json_candidate.replace('\\n', '\n')
+                                # Fix escaped quotes in the wrong direction
+                                json_candidate = json_candidate.replace('\\"', '"').replace('\\"', '"')
+                                        
+                                # Handle problematic control characters and common JSON syntax errors
+                                json_candidate = ''.join(ch for ch in json_candidate if ord(ch) >= 32 or ch in '\n\r\t')
+                                
+                                # Fix common JSON syntax errors seen in AI outputs
+                                # Fix lines ending with a comma followed by a closing bracket
+                                json_candidate = re.sub(r',\s*(\}|\])', r'\1', json_candidate)
+                                
+                                # Fix line ending with a quote that should be followed by a comma
+                                json_candidate = re.sub(r'"\s*\n\s*"', '",\n"', json_candidate)
+                                
+                                # Fix null values with trailing characters
+                                json_candidate = re.sub(r'null,?\s*\n"', 'null\n,"', json_candidate)
+                                json_candidate = re.sub(r'null([^,}\\])', r'null,\1', json_candidate)
+                                
+                                try:
+                                    summary_data = json.loads(json_candidate)
+                                    has_structured_data = True
+                                    logging.info("Successfully parsed JSON after extracting from { to } bounds and removing Box AI disclaimer text.")
+                                except json.JSONDecodeError as e:
+                                    raise e  # Re-raise to be caught by outer exception handler
+                            else:
+                                raise json.JSONDecodeError("Could not find valid JSON object bounds", cleaned_json_candidate, 0)
+                        
+                        # For PDF/TXT, use the re-serialized, validated JSON.
+                        financial_summary_for_pdf = json.dumps(summary_data, indent=2) 
+                        # Disclaimer will be added by PDF/TXT generation logic.
+                    except json.JSONDecodeError as json_error:
+                        logging.warning(f"Could not parse JSON from AI response even after cleaning: {json_error}")
+                        logging.debug(f"--- Start of failing cleaned_json_candidate ---")
+                        logging.debug(cleaned_json_candidate)
+                        logging.debug(f"--- End of failing cleaned_json_candidate ---")
+                        logging.debug(f"Original text_from_ai (after markdown strip, before disclaimer separation attempt):\\n{text_from_ai}")
+                        
+                        summary_data = {
+                            "error": "Failed to parse AI response into valid JSON.",
+                            "details": str(json_error),
+                            "original_response_snippet": text_from_ai[:500] # Include a snippet for debugging
+                        }
+                        has_structured_data = False # Treat this as unstructured for PDF content purposes
+                        financial_summary_for_pdf = json.dumps(summary_data, indent=2) # PDF gets an error JSON
+
+                        # Ensure our standard disclaimer is added after the error JSON
+                        financial_summary_for_pdf += f"\\n\\n{disclaimer_text}"
+                        logging.info("Box AI response was not valid JSON. PDF will contain an error JSON.")
+                
+            # Create either a PDF file or a simple TXT file with the summary
+            file_name_base = f"Financial_Summary_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            
+            pdf_created = False
+            pdf_stream = io.BytesIO() # Initialize here, used by both PDF and TXT attempts.
+            
+            # Define styles once
+            styles = getSampleStyleSheet()
+            title_style = ParagraphStyle('TitleStyle', parent=styles['Heading1'], fontSize=18, textColor=colors.navy, spaceAfter=12, alignment=TA_CENTER)
+            subtitle_style = ParagraphStyle('SubtitleStyle', parent=styles['Heading2'], fontSize=14, textColor=colors.navy, spaceAfter=8)
+            header_style = ParagraphStyle('HeaderStyle', parent=styles['Heading3'], fontSize=12, textColor=colors.navy, spaceAfter=6)
+            normal_style = styles['Normal']
+            disclaimer_pdf_style = ParagraphStyle('Disclaimer', parent=styles['Normal'], fontSize=8, textColor=colors.gray)
+            ai_disclaimer_style = normal_style # Or a specific style like: ParagraphStyle('AIDisclaimer', parent=normal_style, fontStyle='Italic')
+
+            try:
+                logging.info("Attempting to create PDF with ReportLab...")
+                doc = SimpleDocTemplate(pdf_stream, pagesize=letter)
+                
+                content = []
+                # Common PDF header
+                content.append(Paragraph(f"Financial Summary", title_style))
+                client_name = folder_name.split(' - ')[0] if ' - ' in folder_name else folder_name
+                content.append(Paragraph(f"Client: {client_name}", subtitle_style))
+                content.append(Paragraph(f"Generated on {datetime.now().strftime('%B %d, %Y')}", normal_style))
+                content.append(Spacer(1, 20))
+
+                if has_structured_data:
+                    logging.info("Using structured data to generate PDF content")
+                    accounts = summary_data.get('accounts', [])
+                    loans = summary_data.get('loans', [])
+                    aggregates = summary_data.get('aggregates', {})
+                    flags = summary_data.get('flags', [])
+                    
+                    def format_currency(value):
+                        if value is None: return "Not available"
+                        try: # Ensure value is number for formatting
+                            return f"${float(value):,.2f}" if float(value) != 0 else "Not available"
+                        except (ValueError, TypeError): return "Not available"
+
+                    content.append(Paragraph("Executive Summary", header_style))
+                    financial_data_table_content = [
+                        ["Metric", "Value"],
+                        ["Total Assets", format_currency(aggregates.get('total_assets'))],
+                        ["Total Liabilities", format_currency(aggregates.get('total_liabilities'))],
+                        ["Net Worth", format_currency(aggregates.get('net_worth'))],
+                        ["Total Unrealized Gains", format_currency(aggregates.get('total_unrealized_gains'))],
+                        ["Total Unrealized Losses", format_currency(aggregates.get('total_unrealized_losses'))]
+                    ]
+                    financial_table = Table(financial_data_table_content, colWidths=[200, 200])
+                    financial_table.setStyle(TableStyle([
+                        ('BACKGROUND', (0, 0), (1, 0), colors.lightgrey), ('TEXTCOLOR', (0, 0), (1, 0), colors.navy),
+                        ('ALIGN', (0, 0), (1, 0), 'CENTER'), ('FONTNAME', (0, 0), (1, 0), 'Helvetica-Bold'),
+                        ('BOTTOMPADDING', (0, 0), (1, 0), 12), ('BACKGROUND', (0, 1), (1, -1), colors.white),
+                        ('GRID', (0, 0), (-1, -1), 1, colors.black),
+                    ]))
+                    content.append(financial_table)
+                    content.append(Spacer(1, 20))
+
+                    if aggregates.get('investments_by_sector', {}):
+                        content.append(Paragraph("Investments by Sector", header_style))
+                        sector_data_content = [["Sector", "Percentage"]]
+                        for sector, percentage in aggregates.get('investments_by_sector', {}).items():
+                            try:
+                                sector_data_content.append([sector, f"{float(percentage):.1f}%"])
+                            except (ValueError, TypeError):
+                                sector_data_content.append([sector, "N/A"])
+                        sector_table = Table(sector_data_content, colWidths=[200, 200])
+                        sector_table.setStyle(TableStyle([
+                            ('BACKGROUND', (0,0), (1,0), colors.lightgrey), ('TEXTCOLOR', (0,0), (1,0), colors.navy),
+                            ('ALIGN', (0,0), (1,0), 'CENTER'), ('FONTNAME', (0,0), (1,0), 'Helvetica-Bold'),
+                            ('BOTTOMPADDING', (0,0), (1,0), 12), ('BACKGROUND', (0,1), (1,-1), colors.white),
+                            ('GRID', (0,0), (-1,-1), 1, colors.black),
+                        ]))
+                        content.append(sector_table)
+                        content.append(Spacer(1, 20))
+                    
+                    if accounts:
+                        content.append(Paragraph("Accounts", header_style))
+                        account_data_content = [["Account Name", "Institution", "Type", "Balance"]]
+                        for acc in accounts:
+                            account_data_content.append([
+                                acc.get('account_name', 'N/A'), acc.get('institution', 'N/A'),
+                                acc.get('account_type', 'N/A'), format_currency(acc.get('ending_balance'))
+                            ])
+                        account_table = Table(account_data_content, colWidths=[150, 100, 100, 100])
+                        account_table.setStyle(TableStyle([
+                            ('BACKGROUND', (0,0), (-1,0), colors.lightgrey), ('TEXTCOLOR', (0,0), (-1,0), colors.navy),
+                            ('ALIGN', (0,0), (-1,0), 'CENTER'), ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
+                            ('BOTTOMPADDING', (0,0), (-1,0), 12), ('BACKGROUND', (0,1), (-1,-1), colors.white),
+                            ('GRID', (0,0), (-1,-1), 1, colors.black),
+                        ]))
+                        content.append(account_table)
+                        content.append(Spacer(1, 20))
+
+                    if loans:
+                        content.append(Paragraph("Loans", header_style))
+                        loan_data_content = [["Loan Name", "Principal Balance", "Interest Rate", "Maturity"]]
+                        for loan in loans:
+                            loan_data_content.append([
+                                loan.get('loan_name', 'N/A'), format_currency(loan.get('principal_balance')),
+                                f"{loan.get('interest_rate', 'N/A')}%" if loan.get('interest_rate') is not None else "N/A",
+                                loan.get('maturity_date', 'N/A')
+                            ])
+                        loan_table = Table(loan_data_content, colWidths=[150, 100, 100, 100])
+                        loan_table.setStyle(TableStyle([
+                            ('BACKGROUND', (0,0), (-1,0), colors.lightgrey), ('TEXTCOLOR', (0,0), (-1,0), colors.navy),
+                            ('ALIGN', (0,0), (-1,0), 'CENTER'), ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
+                            ('BOTTOMPADDING', (0,0), (-1,0), 12), ('BACKGROUND', (0,1), (-1,-1), colors.white),
+                            ('GRID', (0,0), (-1,-1), 1, colors.black),
+                        ]))
+                        content.append(loan_table)
+                        content.append(Spacer(1, 20))
+
+                    if flags:
+                        content.append(Paragraph("Issues Flagged", header_style))
+                        for flag in flags:
+                            severity = flag.get('severity', 'INFO').upper()
+                            message = flag.get('message', '')
+                            flag_color = colors.black
+                            if severity == 'ERROR': flag_color = colors.red
+                            elif severity == 'WARNING': flag_color = colors.orange
+                            content.append(Paragraph(f"• {severity}: {message}", ParagraphStyle('FlagStyle', parent=normal_style, textColor=flag_color)))
+                        content.append(Spacer(1, 20))
+                    
+                    content.append(Paragraph(disclaimer_text, ai_disclaimer_style)) # AI Disclaimer for structured
+                
+                else: # has_structured_data is False
+                    logging.info("Using unstructured text to generate PDF content (or error message)")
+                    content.append(Paragraph("AI Generated Summary / Status", header_style))
+                    # financial_summary_for_pdf contains AI's raw text or the failure message.
+                    # Ensure disclaimer is appended if not already part of it (it should be if parsing failed).
+                    if disclaimer_text not in financial_summary_for_pdf:
+                         current_pdf_text = financial_summary_for_pdf # temp var
+                         financial_summary_for_pdf = current_pdf_text + f"\n\n{disclaimer_text}"
+
+                    for line in financial_summary_for_pdf.split('\n'):
+                        content.append(Paragraph(line if line.strip() else "&nbsp;", normal_style))
+                
+                # Common PDF footer (general legal disclaimer)
+                content.append(Spacer(1, 20))
+                # The AI disclaimer (disclaimer_text) should have been incorporated into financial_summary_for_pdf
+                # if has_structured_data was False, or added explicitly if True.
+                # So, no need to add it again here, but the general legal disclaimer is always added.
+
+                content.append(Paragraph(
+                    "This financial summary is generated based on the documents provided and should be reviewed with a financial professional. "
+                    "The information contained herein is for informational purposes only and should not be construed as financial advice.",
+                    disclaimer_pdf_style
+                ))
+                
+                doc.build(content)
+                pdf_stream.seek(0)
+                pdf_created = True
+                logging.info("PDF created successfully with ReportLab")
+
+            except Exception as pdf_error:
+                logging.error(f"Error generating PDF with ReportLab: {pdf_error}", exc_info=True)
+                logging.info("Falling back to plain text format due to PDF generation error.")
+                pdf_created = False # Ensure this is false if PDF build fails
+            
+            # Upload logic starts here
+            upload_file_stream = None
+            upload_file_name = ""
+            upload_format = ""
+
+            if pdf_created and pdf_stream.getbuffer().nbytes > 0: # Check if stream has content
+                upload_file_name = f"{file_name_base}.pdf"
+                logging.info(f"Uploading PDF summary file: {upload_file_name}")
+                upload_file_stream = pdf_stream # pdf_stream is already seek(0)
+                upload_format = "pdf"
+            else:
+                if pdf_stream: # Close potentially failed PDF stream
+                    pdf_stream.close()
+                # Fallback to plain text
+                logging.info("Preparing plain text summary for upload.")
+                text_file_stream = io.BytesIO() # Use a new stream for TXT
+                
+                # financial_summary_for_pdf holds the content (JSON string or raw AI text with disclaimer or error message)
+                text_content_for_file = f"FINANCIAL SUMMARY - {client_name if 'client_name' in locals() else folder_name}\n\n"
+                text_content_for_file += f"Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+                text_content_for_file += "-----------------------------------------------------\n"
+                text_content_for_file += financial_summary_for_pdf 
+                text_content_for_file += "\n-----------------------------------------------------\n"
+                
+                # Ensure AI disclaimer is present in TXT if not already part of financial_summary_for_pdf
+                # (it should be if parsing failed or if it was clean JSON and then added by PDF path)
+                if disclaimer_text not in financial_summary_for_pdf:
+                    text_content_for_file += f"\n{disclaimer_text}\n"
+                
+                text_content_for_file += (
+                    f"\n\nGeneral Disclaimer: This financial summary is generated based on the documents provided and should be "
+                    f"reviewed with a financial professional. The information contained herein is for informational purposes "
+                    f"only and should not be construed as financial advice."
+                )
+
+                text_file_stream.write(text_content_for_file.encode('utf-8'))
+                text_file_stream.seek(0)
+                
+                upload_file_name = f"{file_name_base}.txt"
+                logging.info(f"Uploading text summary file: {upload_file_name}")
+                upload_file_stream = text_file_stream
+                upload_format = "txt"
+
+            try:
+                if upload_file_stream and upload_file_name:
+                    new_file = folder.upload_stream(upload_file_stream, upload_file_name)
+                    logging.info(f"Uploaded summary file: {new_file.name} (ID: {new_file.id}) as {upload_format}")
+                    logging.info("========== FINISHED FINANCIAL SUMMARY GENERATION SUCCESSFULLY ==========")
+                    return JsonResponse({
+                        'success': True,
+                        'message': 'Financial summary generated successfully',
+                        'fileId': new_file.id,
+                        'fileName': new_file.name,
+                        'folderId': folder_id,
+                        'format': upload_format
+                    })
+                else:
+                    logging.error("No file stream or name determined for upload. This should not happen.")
+                    # This case indicates an internal logic error above.
+                    return JsonResponse({'success': False, 'message': 'Internal error: Summary file content not prepared for upload'}, status=500)
+            except Exception as upload_error:
+                logging.error(f"Error uploading summary file: {upload_error}", exc_info=True)
+                return JsonResponse({
+                    'success': False,
+                    'message': f'Error uploading summary file: {str(upload_error)}'
+                }, status=500)
+            finally:
+                if upload_file_stream: # Ensure stream is closed
+                    upload_file_stream.close()
+            
+        except Exception as ai_error:
+            logging.error(f"Error using Box AI Text Generation API or subsequent processing: {ai_error}", exc_info=True)
+            return JsonResponse({
+                'success': False, 
+                'message': f'Error generating summary with Box AI: {str(ai_error)}'
+            }, status=500)
+            
+    except Exception as e:
+        logging.error(f"Error in generate_financial_summary: {e}")
+        logging.error(traceback.format_exc())
+        return JsonResponse({'success': False, 'message': str(e)}, status=500)
+    finally:
+        logging.info("========== FINANCIAL SUMMARY GENERATION PROCESS COMPLETE ==========")
+
+@login_required
+@csrf_exempt
+def process_document_metadata(request):
+    """Process a Box document by extracting and applying metadata.
+    
+    Args:
+        request: HTTP request with fileId parameter
+    
+    Returns:
+        JSON response with the result
+    """
+    try:
+        if request.method == 'POST' and request.content_type == 'application/json':
+            # Handle JSON payload from client-side
+            try:
+                data = json.loads(request.body)
+                file_id = data.get('fileId')
+                template_key = data.get('templateKey', 'financialDocumentBase')
+                request_data = data.get('requestData')
+                
+                if request_data:
+                    logging.info(f"Received custom request data for extraction: {json.dumps(request_data, indent=2)}")
+            except json.JSONDecodeError:
+                return JsonResponse({'success': False, 'message': 'Invalid JSON payload'}, status=400)
+        else:
+            # Handle regular GET request with query parameters
+            file_id = request.GET.get('fileId')
+            template_key = request.GET.get('templateKey', 'financialDocumentBase')
+            request_data = None
+        
+        if not file_id:
+            return JsonResponse({'success': False, 'message': 'Missing file ID'}, status=400)
+        
+        # Get an authenticated Box client
+        box_client = get_box_client()
+        
+        # Initialize the services
+        extraction_service = BoxMetadataExtractionService(box_client)
+        application_service = BoxMetadataApplicationService(box_client)
+        
+        # First verify the file exists and get its info
+        try:
+            file_obj = box_client.file(file_id)
+            file_info = file_obj.get()
+            logging.info(f"========== STARTING METADATA PROCESSING FOR FILE: {file_info.name} (ID: {file_id}) ==========")
+        except Exception as e:
+            logging.error(f"Error accessing file {file_id}: {e}")
+            return JsonResponse({
+                'success': False,
+                'message': f'Could not access file: {str(e)}',
+                'fileId': file_id
+            }, status=404)
+        
+        # Step 1: Ensure the base metadata template is attached to the file
+        try:
+            # Check if metadata already exists
+            try:
+                metadata = file_obj.metadata(scope='enterprise_218068865', template='financialDocumentBase').get()
+                logging.info(f"Base metadata template already exists for file {file_id}")
+            except BoxAPIException as e:
+                # If 404, metadata doesn't exist yet - create it with empty values
+                if e.status == 404:
+                    metadata = file_obj.metadata(scope='enterprise_218068865', template='financialDocumentBase').create({})
+                    logging.info(f"Applied base metadata template to file {file_id}")
+                else:
+                    raise e
+        except Exception as template_error:
+            logging.error(f"Error with metadata template for file {file_id}: {template_error}")
+            # Continue anyway as the extraction might still work
+        
+        # Step 2: Extract base metadata
+        logging.info(f"Extracting base metadata for file {file_id}")
+        
+        # Use the custom request data if provided
+        if request_data:
+            extraction_result = extraction_service.extract_with_custom_request(file_id, request_data)
+        else:
+            extraction_result = extraction_service.extract_base_metadata(file_id)
+        
+        # Log the full extraction result
+        logging.info(f"Base metadata extraction result for file {file_id}: {json.dumps(extraction_result, indent=2)}")
+        
+        if not extraction_result['success']:
+            logging.warning(f"Metadata extraction failed for file {file_id}: {extraction_result['message']}")
+            return JsonResponse({
+                'success': False,
+                'message': f"Metadata extraction failed: {extraction_result['message']}",
+                'extraction_result': extraction_result,
+                'fileId': file_id
+            })
+        
+        # Step 3: Apply the base metadata to the file
+        logging.info(f"Applying base metadata for file {file_id}")
+        base_metadata = extraction_result.get('data', {})
+        
+        # If we received a direct Box AI structured extraction response, convert to our format
+        if 'ai_agent_info' in extraction_result and 'data' not in extraction_result:
+            logging.info(f"Detected direct Box AI response, converting to our format")
+            # Extract meaningful data, excluding Box AI metadata fields
+            excluded_fields = ['ai_agent_info', 'completion_reason', 'created_at']
+            base_metadata = {k: v for k, v in extraction_result.items() if k not in excluded_fields}
+            # Update the extraction result to have a data field
+            extraction_result['data'] = base_metadata
+        
+        # If we received a 'fields' array, convert to a key-value dictionary
+        if 'fields' in extraction_result and isinstance(extraction_result['fields'], list):
+            logging.info(f"Converting fields array to dictionary")
+            fields_dict = {}
+            for field in extraction_result['fields']:
+                if 'key' in field and 'value' in field:
+                    fields_dict[field['key']] = field['value']
+            base_metadata = fields_dict
+            extraction_result['data'] = base_metadata
+        
+        # Log the metadata being applied
+        logging.info(f"Base metadata being applied to file {file_id}: {json.dumps(base_metadata, indent=2)}")
+        
+        application_result = application_service.apply_base_metadata(file_id, base_metadata)
+        
+        # Log the application result
+        logging.info(f"Base metadata application result for file {file_id}: {json.dumps(application_result, indent=2)}")
+        
+        if not application_result['success']:
+            logging.warning(f"Base metadata application failed for file {file_id}: {application_result['message']}")
+            return JsonResponse({
+                'success': False, 
+                'message': f"Base metadata application failed: {application_result['message']}",
+                'application_result': application_result,
+                'extraction_result': extraction_result,
+                'fileId': file_id
+            })
+        
+        # Check if document type was determined
+        document_type = None
+        if 'data' in application_result and 'documentType' in application_result['data']:
+            document_type = application_result['data']['documentType']
+        elif base_metadata and isinstance(base_metadata, dict) and 'documentType' in base_metadata:
+            document_type = base_metadata['documentType']
+        
+        logging.info(f"Document type determined for file {file_id}: {document_type}")
+        
+        # Step 4: If document type is identified, extract and apply document-specific metadata
+        document_type_result = {'success': True, 'message': 'No document type identified'}
+        if document_type:
+            logging.info(f"Document type identified as '{document_type}' for file {file_id}, extracting specific metadata")
+            
+            # Extract document-specific metadata
+            doc_extraction_result = extraction_service.extract_document_type_metadata(file_id, document_type)
+            
+            # Log the document-specific extraction result
+            logging.info(f"Document-specific metadata extraction result for file {file_id}: {json.dumps(doc_extraction_result, indent=2)}")
+            
+            if doc_extraction_result['success']:
+                # Apply document-specific metadata
+                doc_metadata = doc_extraction_result.get('data', {})
+                
+                # Log the document-specific metadata being applied
+                logging.info(f"Document-specific metadata being applied to file {file_id}: {json.dumps(doc_metadata, indent=2)}")
+                
+                document_type_result = application_service.apply_document_type_metadata(
+                    file_id, document_type, doc_metadata
+                )
+                
+                # Log the document-specific application result
+                logging.info(f"Document-specific metadata application result for file {file_id}: {json.dumps(document_type_result, indent=2)}")
+                
+                if not document_type_result['success']:
+                    logging.warning(f"Document-specific metadata application failed for file {file_id}: {document_type_result['message']}")
+            else:
+                logging.warning(f"Document-specific metadata extraction failed for file {file_id}: {doc_extraction_result['message']}")
+                document_type_result = {
+                    'success': False,
+                    'message': f"Document-specific metadata extraction failed: {doc_extraction_result['message']}"
+                }
+        
+        # Return the combined results
+        logging.info(f"========== COMPLETED METADATA PROCESSING FOR FILE: {file_info.name} (ID: {file_id}) ==========")
+        
+        # Prepare a response that includes all the necessary data for the frontend
+        response_data = {
+            'success': True,
+            'message': f"Successfully processed document {file_info.name}",
+            'fileId': file_id,
+            'documentType': document_type,
+            'baseMetadataResult': application_result,
+            'documentTypeResult': document_type_result
+        }
+        
+        # If we have fields in the extraction result, include them in the response
+        if 'fields' in extraction_result and isinstance(extraction_result['fields'], list):
+            response_data['fields'] = extraction_result['fields']
+        
+        # If we have answer in the extraction result, include it in the response
+        if 'answer' in extraction_result:
+            response_data['answer'] = extraction_result['answer']
+            
+        return JsonResponse(response_data)
+        
+    except Exception as e:
+        logging.error(f"Error processing document metadata: {e}")
+        logging.error(traceback.format_exc())
+        # Try to include file ID in the response even on error
+        return JsonResponse({
+            'success': False,
+            'message': f'Error: {str(e)}',
+            'fileId': file_id if 'file_id' in locals() else None
+        }, status=500)
+
+# Add this new view function to ensure a metadata template is applied to a file
+
+def ensure_metadata_template(request):
+    """Ensures a metadata template is applied to a file before adding metadata values.
+    
+    Args:
+        request: HTTP request with fileId, template, and scope parameters
+    
+    Returns:
+        JSON response with the result
+    """
+    try:
+        # Get parameters from request
+        file_id = request.GET.get('fileId')
+        template = request.GET.get('template', 'financialDocumentBase')
+        scope = request.GET.get('scope', 'enterprise_218068865')
+        
+        if not file_id:
+            return JsonResponse({'success': False, 'message': 'Missing file ID'}, status=400)
+        
+        # Get an authenticated Box client
+        box_client = get_box_client()
+        
+        # Get the file object
+        file_obj = box_client.file(file_id=file_id)
+        
+        # Try to get existing metadata
+        try:
+            # Check if metadata already exists
+            metadata = file_obj.metadata(scope=scope, template=template).get()
+            return JsonResponse({
+                'success': True, 
+                'message': 'Metadata template already applied',
+                'data': metadata
+            })
+        except BoxAPIException as e:
+            # If 404, metadata doesn't exist yet - create it with empty values
+            if e.status == 404:
+                try:
+                    # Apply the template with empty values
+                    metadata = file_obj.metadata(scope=scope, template=template).create({})
+                    return JsonResponse({
+                        'success': True,
+                        'message': 'Metadata template applied successfully',
+                        'data': metadata
+                    })
+                except Exception as create_error:
+                    logging.error(f"Error creating metadata template: {create_error}")
+                    return JsonResponse({
+                        'success': False,
+                        'message': f'Error creating metadata template: {str(create_error)}'
+                    }, status=500)
+            else:
+                logging.error(f"Error checking metadata: {e}")
+                return JsonResponse({
+                    'success': False,
+                    'message': f'Error accessing metadata: {str(e)}'
+                }, status=500)
+    except Exception as e:
+        logging.error(f"Error in ensure_metadata_template: {e}")
+        return JsonResponse({
+            'success': False,
+            'message': f'Error: {str(e)}'
+        }, status=500)
+
+def check_uploaded_files(request):
+    """Diagnostic endpoint to check for recent uploads to a folder.
+    
+    Args:
+        request: HTTP request with folderId parameter
+    
+    Returns:
+        JSON response with list of files and their details
+    """
+    try:
+        # Get folder ID from request
+        folder_id = request.GET.get('folderId')
+        file_id = request.GET.get('fileId')
+        
+        logging.info(f"========== CHECK UPLOADS API REQUEST ==========")
+        logging.info(f"Folder ID: {folder_id}")
+        logging.info(f"File ID for verification: {file_id if file_id else 'None'}")
+        
+        if not folder_id:
+            logging.error("Missing folder ID in request")
+            return JsonResponse({'success': False, 'message': 'Missing folder ID'}, status=400)
+        
+        # Get an authenticated Box client
+        logging.info("Getting Box client...")
+        box_client = get_box_client()
+        
+        # Get the folder object
+        logging.info(f"Getting folder {folder_id} from Box...")
+        try:
+            folder = box_client.folder(folder_id=folder_id)
+            folder_info = folder.get()
+            logging.info(f"Successfully retrieved folder: {folder_info.name} (ID: {folder_info.id})")
+        except Exception as folder_error:
+            logging.error(f"Error retrieving folder {folder_id}: {folder_error}")
+            return JsonResponse({
+                'success': False, 
+                'message': f'Error retrieving folder: {str(folder_error)}'
+            }, status=404)
+        
+        # Get folder items
+        logging.info(f"Getting items in folder {folder_id}...")
+        items = folder.get_items(limit=100)
+        
+        # Format the result
+        files = []
+        for item in items:
+            if item.type == 'file':
+                file_data = {
+                    'id': item.id,
+                    'name': item.name,
+                    'type': item.type,
+                    'size': getattr(item, 'size', None),
+                    'created_at': getattr(item, 'created_at', None),
+                    'modified_at': getattr(item, 'modified_at', None)
+                }
+                files.append(file_data)
+                logging.info(f"FOUND FILE: {item.name} (ID: {item.id})")
+        
+        logging.info(f"========== FOUND {len(files)} FILES IN FOLDER {folder_id} ==========")
+        
+        # Check if this is a tracking verification for a specific file
+        if file_id:
+            file_found = any(file['id'] == file_id for file in files)
+            if file_found:
+                file_details = next((file for file in files if file['id'] == file_id), None)
+                logging.info(f"FILE VERIFICATION SUCCESS: File ID {file_id} FOUND in folder {folder_id}")
+                logging.info(f"File details: {file_details}")
+            else:
+                logging.warning(f"FILE VERIFICATION FAILED: File ID {file_id} NOT FOUND in folder {folder_id}")
+                logging.warning(f"All files in folder: {', '.join(file['name'] + ' (' + file['id'] + ')' for file in files)}")
+        
+        return JsonResponse({
+            'success': True,
+            'message': f"Found {len(files)} files in folder",
+            'files': files,
+            'file_verification': file_id is not None and file_found if file_id else None
+        })
+        
+    except Exception as e:
+        logging.error(f"Error checking uploaded files: {e}")
+        logging.error(traceback.format_exc())
+        return JsonResponse({
+            'success': False,
+            'message': f'Error: {str(e)}'
+        }, status=500)
+
+@login_required
+@csrf_exempt
+def get_file_metadata(request):
+    """API endpoint to get metadata for a specific file.
+    
+    Args:
+        request: HTTP request with fileId, template, and scope parameters
+    
+    Returns:
+        JSON response with the metadata
+    """
+    try:
+        # Get parameters from request
+        file_id = request.GET.get('fileId')
+        template = request.GET.get('template', 'financialDocumentBase')
+        scope = request.GET.get('scope', 'enterprise_218068865')
+        
+        if not file_id:
+            return JsonResponse({'success': False, 'message': 'Missing file ID'}, status=400)
+        
+        # Get an authenticated Box client
+        box_client = get_box_client()
+        
+        # Get the file object
+        file_obj = box_client.file(file_id=file_id)
+        
+        try:
+            # Get the metadata
+            metadata = file_obj.metadata(scope=scope, template=template).get()
+            return JsonResponse({
+                'success': True, 
+                'message': 'Metadata retrieved successfully',
+                'data': metadata
+            })
+        except BoxAPIException as e:
+            # If 404, the metadata doesn't exist yet
+            if e.status == 404:
+                return JsonResponse({
+                    'success': False,
+                    'message': 'No metadata found for this file'
+                }, status=404)
+            else:
+                logging.error(f"Error retrieving metadata: {e}")
+                return JsonResponse({
+                    'success': False,
+                    'message': f'Error retrieving metadata: {str(e)}'
+                }, status=500)
+    except Exception as e:
+        logging.error(f"Error in get_file_metadata: {e}")
+        logging.error(traceback.format_exc())
+        return JsonResponse({
+            'success': False,
+            'message': f'Error: {str(e)}'
+        }, status=500)
+
+@login_required
+def get_metadata_template_details(request):
+    """Get metadata template details.
+    
+    Args:
+        request: HTTP request with template and scope parameters
+    
+    Returns:
+        JSON response with the template details
+    """
+    try:
+        # Get parameters from request
+        template_key = request.GET.get('template', 'financialDocumentBase')
+        scope = request.GET.get('scope', 'enterprise_218068865')
+        
+        # Get an authenticated Box client
+        box_client = get_box_client()
+        
+        # Get all templates
+        templates = box_client.metadata_templates()
+        
+        # Find the requested template
+        template_found = None
+        for template in templates:
+            if template.templateKey == template_key and template.scope == scope:
+                template_found = template
+                break
+        
+        if not template_found:
+            return JsonResponse({
+                'success': False, 
+                'message': f'Template not found: {template_key} in scope {scope}'
+            }, status=404)
+        
+        # Get template schema (fields)
+        template_schema = template_found.get()
+        
+        # Format the response to show fields
+        fields = []
+        if hasattr(template_schema, 'fields'):
+            for field in template_schema.fields:
+                field_info = {
+                    'displayName': field.displayName,
+                    'key': field.key,
+                    'type': field.type
+                }
+                
+                # Include options if present
+                if hasattr(field, 'options') and field.options:
+                    field_info['options'] = [{'key': option.key} for option in field.options]
+                
+                fields.append(field_info)
+        
+        return JsonResponse({
+            'success': True,
+            'template': {
+                'templateKey': template_schema.templateKey,
+                'scope': template_schema.scope,
+                'displayName': template_schema.displayName,
+                'fields': fields
+            }
+        })
+    except Exception as e:
+        logging.error(f"Error getting template details: {e}")
+        return JsonResponse({
+            'success': False,
+            'message': f'Error: {str(e)}'
+        }, status=500)
+
+@login_required
+@csrf_exempt
+def process_documents_metadata_batch(request):
+    """Process multiple Box documents in parallel by extracting and applying metadata.
+    
+    Args:
+        request: HTTP request with fileIds parameter
+    
+    Returns:
+        JSON response with the batch processing results
+    """
+    try:
+        if request.method != 'POST':
+            return JsonResponse({'success': False, 'message': 'Only POST method is allowed'}, status=405)
+        
+        # Parse JSON data from the request
+        try:
+            data = json.loads(request.body)
+            file_ids = data.get('fileIds', [])
+            template_key = data.get('templateKey', 'financialDocumentBase')
+            
+            if not file_ids:
+                return JsonResponse({'success': False, 'message': 'Missing file IDs'}, status=400)
+        except json.JSONDecodeError:
+            return JsonResponse({'success': False, 'message': 'Invalid JSON payload'}, status=400)
+            
+        logging.info(f"Processing batch metadata extraction for {len(file_ids)} files")
+        
+        # Get an authenticated Box client
+        box_client = get_box_client()
+        
+        # Initialize the services
+        extraction_service = BoxMetadataExtractionService(box_client)
+        application_service = BoxMetadataApplicationService(box_client)
+        
+        # Define function to process a single file
+        def process_single_file(file_id):
+            try:
+                # First verify the file exists and get its info
+                try:
+                    file_obj = box_client.file(file_id)
+                    file_info = file_obj.get()
+                    file_name = file_info.name
+                    logging.info(f"========== STARTING METADATA PROCESSING FOR FILE: {file_name} (ID: {file_id}) ==========")
+                except Exception as e:
+                    logging.error(f"Error accessing file {file_id}: {e}")
+                    return {
+                        'fileId': file_id,
+                        'success': False,
+                        'message': f'Could not access file: {str(e)}'
+                    }
+                
+                # Step 1: Ensure the base metadata template is attached to the file
+                try:
+                    # Check if metadata already exists
+                    try:
+                        metadata = file_obj.metadata(scope='enterprise_218068865', template='financialDocumentBase').get()
+                        logging.info(f"Base metadata template already exists for file {file_id}")
+                    except BoxAPIException as e:
+                        # If 404, metadata doesn't exist yet - create it with empty values
+                        if e.status == 404:
+                            metadata = file_obj.metadata(scope='enterprise_218068865', template='financialDocumentBase').create({})
+                            logging.info(f"Applied base metadata template to file {file_id}")
+                        else:
+                            raise e
+                except Exception as template_error:
+                    logging.error(f"Error with metadata template for file {file_id}: {template_error}")
+                    # Continue anyway as the extraction might still work
+                
+                # Step 2: Extract base metadata
+                logging.info(f"Extracting base metadata for file {file_id}")
+                extraction_result = extraction_service.extract_base_metadata(file_id)
+                
+                # Log the extraction result
+                logging.info(f"Base metadata extraction result for file {file_id}: {json.dumps(extraction_result, indent=2)}")
+                
+                if not extraction_result['success']:
+                    logging.warning(f"Metadata extraction failed for file {file_id}: {extraction_result['message']}")
+                    return {
+                        'fileId': file_id,
+                        'fileName': file_name,
+                        'success': False,
+                        'message': f"Metadata extraction failed: {extraction_result['message']}",
+                        'extraction_result': extraction_result
+                    }
+                
+                # Step 3: Apply the base metadata to the file
+                logging.info(f"Applying base metadata for file {file_id}")
+                base_metadata = extraction_result.get('data', {})
+                
+                # Handle different extraction result formats
+                if 'ai_agent_info' in extraction_result and 'data' not in extraction_result:
+                    logging.info(f"Detected direct Box AI response, converting to our format")
+                    excluded_fields = ['ai_agent_info', 'completion_reason', 'created_at']
+                    base_metadata = {k: v for k, v in extraction_result.items() if k not in excluded_fields}
+                    extraction_result['data'] = base_metadata
+                
+                if 'fields' in extraction_result and isinstance(extraction_result['fields'], list):
+                    logging.info(f"Converting fields array to dictionary")
+                    fields_dict = {}
+                    for field in extraction_result['fields']:
+                        if 'key' in field and 'value' in field:
+                            fields_dict[field['key']] = field['value']
+                    base_metadata = fields_dict
+                    extraction_result['data'] = base_metadata
+                
+                # Format date fields to ensure they're compatible with Box metadata requirements
+                if base_metadata and isinstance(base_metadata, dict):
+                    # Handle nested fields structure
+                    if 'fields' in base_metadata and isinstance(base_metadata['fields'], dict):
+                        logging.info(f"Found nested fields structure, extracting fields")
+                        base_metadata = base_metadata['fields']
+                        logging.info(f"Extracted fields: {json.dumps(base_metadata, indent=2)}")
+                    
+                    # Find all date fields in the metadata - add any field that could contain date information
+                    date_fields = [
+                        'documentDate', 'statementDate', 'nextPaymentDue', 'dueDate',
+                        'issuedDate', 'expirationDate', 'fileDate', 'filingDate',
+                        'reportDate', 'asOfDate', 'effectiveDate', 'closingDate',
+                        'issueDate', 'statementEndDate', 'statementStartDate',
+                        'taxYear' # Added taxYear here to ensure it's processed
+                    ]
+
+                    # Process each date field
+                    for date_field in date_fields:
+                        if date_field in base_metadata and base_metadata[date_field]:
+                            original_date_str = str(base_metadata[date_field]) # Keep original for logging
+                            date_str = str(base_metadata[date_field])
+
+                            # === Start Special Handling for taxYear ===
+                            if date_field == 'taxYear':
+                                if re.fullmatch(r'\d{4}', date_str):
+                                    base_metadata[date_field] = f'{date_str}-01-01T00:00:00Z'
+                                    logging.info(f"Formatted taxYear ('{original_date_str}') from 4-digit year to: {base_metadata[date_field]}")
+                                    continue # Processed taxYear, skip general date logic for this field
+                                else:
+                                    # Try parsing taxYear if not a 4-digit year, with specific formats
+                                    parsed_tax_year_date = None
+                                    tax_year_formats = ['%Y-%m-%d', '%m/%d/%Y', '%Y/%m/%d'] # Limited set
+                                    for fmt in tax_year_formats:
+                                        try:
+                                            parsed_tax_year_date = datetime.strptime(date_str, fmt)
+                                            break
+                                        except ValueError:
+                                            continue
+                                    if parsed_tax_year_date:
+                                        base_metadata[date_field] = parsed_tax_year_date.strftime('%Y-%m-%dT%H:%M:%SZ')
+                                        logging.info(f"Formatted taxYear ('{original_date_str}') from other format to: {base_metadata[date_field]}")
+                                    else:
+                                        logging.warning(f"Could not parse taxYear ('{original_date_str}') into a recognized date format. Removing field.")
+                                        base_metadata.pop(date_field, None)
+                                    continue # Processed or removed taxYear, skip general date logic
+                            # === End Special Handling for taxYear ===
+
+                            # General date processing for other fields
+                            try: 
+                                logging.info(f"Attempting to parse general date field '{date_field}' with initial value: '{date_str}'") # ADDED LOGGING
+
+                                # Skip if already in proper RFC 3339 format with proper timezone designation
+                                if isinstance(date_str, str) and re.match(r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{3,6})?([+-]\d{2}:\d{2}|Z)$', date_str):
+                                    logging.info(f"Date '{date_field}' already in correct RFC 3339 format: {date_str}")
+                                    continue
+
+                                # Basic pattern check to identify bare date without time component (YYYY-MM-DD)
+                                if isinstance(date_str, str) and re.match(r'^\d{4}-\d{2}-\d{2}$', date_str):
+                                    logging.info(f"Date '{date_field}' is already in YYYY-MM-DD format: {date_str}. Ensuring it's Box compatible by re-formatting to YYYY-MM-DD.")
+                                    # Box expects YYYY-MM-DD for date-only, but let's re-parse and format to be sure.
+                                    try:
+                                        parsed_dt = datetime.strptime(date_str, '%Y-%m-%d')
+                                        base_metadata[date_field] = parsed_dt.strftime('%Y-%m-%d')
+                                        logging.info(f"Re-formatted '{date_field}' to YYYY-MM-DD: {base_metadata[date_field]}")
+                                        continue
+                                    except ValueError:
+                                        logging.warning(f"Could not re-parse supposedly YYYY-MM-DD date '{date_str}' for {date_field}. Will try other formats.")
+                                
+                                parsed_date = None
+                                # More restricted and common date formats
+                                date_formats = [
+                                    '%Y-%m-%d', '%m/%d/%Y', '%Y/%m/%d', '%m-%d-%Y', '%d-%m-%Y', # Numerical
+                                    '%B %d, %Y', '%b %d, %Y', '%d %B %Y', '%d %b %Y', # Month name, Day, Year
+                                    '%Y-%m-%dT%H:%M:%S', '%Y-%m-%dT%H:%M:%S.%f', # ISO without Z
+                                    '%m/%d/%y', '%Y%m%d' # YY and compact
+                                ]
+                                for fmt in date_formats:
+                                    try:
+                                        parsed_date = datetime.strptime(date_str, fmt)
+                                        break
+                                    except ValueError:
+                                        continue
+                                
+                                if parsed_date:
+                                    # Prefer YYYY-MM-DD for date-only fields for Box compatibility
+                                    base_metadata[date_field] = parsed_date.strftime('%Y-%m-%d')
+                                    logging.info(f"Reformatted date '{original_date_str}' to {base_metadata[date_field]} for {date_field}")
+                                else:
+                                    logging.warning(f"All strptime attempts failed for date '{original_date_str}' in field '{date_field}'. Removing field.")
+                                    base_metadata.pop(date_field, None)
+                            except Exception as final_date_error:
+                                logging.warning(f"Error during general date processing for field {date_field} (value: '{original_date_str}'): {final_date_error}. Removing field.")
+                                base_metadata.pop(date_field, None)
+                
+                    # The entire block for special taxYear integer handling (previously here) is now removed.
+
+                # Apply the metadata (ensure this is outside the date processing loop)
+                if not base_metadata: # If base_metadata is empty
+                    logging.info(f"Base metadata is empty for file {file_id}. Skipping application step.")
+                    application_result = {'success': True, 'message': 'No metadata extracted to apply.', 'data': {}}
+                else:
+                    application_result = application_service.apply_base_metadata(file_id, base_metadata)
+                
+                # Log the application result
+                logging.info(f"Base metadata application result for file {file_id}: {json.dumps(application_result, indent=2)}")
+                
+                # Even if metadata application fails, we should proceed with 
+                # returning document type from extraction for UI updates
+                if not application_result['success']:
+                    logging.warning(f"Base metadata application failed for file {file_id}: {application_result['message']}")
+                    
+                    # Instead of returning early, we'll continue with the document type from extraction
+                    # but mark this specific operation as having an issue
+                    application_failed = True
+                    application_error = application_result['message']
+                    logging.info(f"Will continue processing to extract document type despite metadata application failure")
+                else:
+                    application_failed = False
+                    application_error = None
+                
+                # Check if document type was determined
+                document_type = None
+                if 'data' in application_result and 'documentType' in application_result['data']:
+                    document_type = application_result['data']['documentType']
+                elif base_metadata and isinstance(base_metadata, dict) and 'documentType' in base_metadata:
+                    document_type = base_metadata['documentType']
+                
+                logging.info(f"Document type determined for file {file_id}: {document_type}")
+                
+                # Step 4: If document type is identified, extract and apply document-specific metadata
+                document_type_result = {'success': True, 'message': 'No document type identified'}
+                if document_type:
+                    logging.info(f"Document type identified as '{document_type}' for file {file_id}, extracting specific metadata")
+                    
+                    # Extract document-specific metadata
+                    doc_extraction_result = extraction_service.extract_document_type_metadata(file_id, document_type)
+                    
+                    # Log the document-specific extraction result
+                    logging.info(f"Document-specific metadata extraction result for file {file_id}: {json.dumps(doc_extraction_result, indent=2)}")
+                    
+                    if doc_extraction_result['success']:
+                        # Apply document-specific metadata
+                        doc_metadata = doc_extraction_result.get('data', {})
+                        
+                        # Log the document-specific metadata being applied
+                        logging.info(f"Document-specific metadata being applied to file {file_id}: {json.dumps(doc_metadata, indent=2)}")
+                        
+                        document_type_result = application_service.apply_document_type_metadata(
+                            file_id, document_type, doc_metadata
+                        )
+                        
+                        # Log the document-specific application result
+                        logging.info(f"Document-specific metadata application result for file {file_id}: {json.dumps(document_type_result, indent=2)}")
+                    else:
+                        logging.warning(f"Document-specific metadata extraction failed for file {file_id}: {doc_extraction_result['message']}")
+                        document_type_result = {
+                            'success': False,
+                            'message': f"Document-specific metadata extraction failed: {doc_extraction_result['message']}"
+                        }
+                
+                # Log completion
+                logging.info(f"========== COMPLETED METADATA PROCESSING FOR FILE: {file_name} (ID: {file_id}) ==========")
+                
+                # Get document type from extraction if not determined earlier
+                extraction_document_type = None
+                if base_metadata and isinstance(base_metadata, dict) and 'documentType' in base_metadata:
+                    extraction_document_type = base_metadata['documentType']
+                    logging.info(f"Found document type in extraction data: {extraction_document_type}")
+                
+                # Use extraction document type if available and no document type from application
+                final_document_type = document_type or extraction_document_type
+                
+                # Determine overall success - we consider extraction success as the primary indicator
+                # even if metadata application failed
+                extraction_successful = extraction_result.get('success', False)
+                overall_success = extraction_successful and (not application_failed)
+                
+                if final_document_type:
+                    logging.info(f"Using document type for UI update: {final_document_type}")
+                    # Even if overall process failed, we succeeded in determining document type
+                    success_message = f"Successfully identified document type for {file_name}"
+                else:
+                    success_message = f"Successfully processed document {file_name}" if overall_success else f"Failed to process {file_name}"
+                
+                # Prepare a response for this file
+                response_data = {
+                    'success': True,  # Always return success if we got this far to ensure document card updates
+                    'message': success_message,
+                    'fileId': file_id,
+                    'fileName': file_name,
+                    'documentType': final_document_type,
+                    'extractionDocumentType': extraction_document_type,  # Include document type from extraction
+                    'baseMetadataResult': application_result,
+                    'documentTypeResult': document_type_result,
+                    'applicationFailed': application_failed,
+                    'applicationError': application_error if application_failed else None
+                }
+                
+                # Include additional fields if available
+                if 'fields' in extraction_result and isinstance(extraction_result['fields'], list):
+                    response_data['fields'] = extraction_result['fields']
+                
+                if 'answer' in extraction_result:
+                    response_data['answer'] = extraction_result['answer']
+                
+                return response_data
+                
+            except Exception as e:
+                logging.error(f"Error processing document metadata for file {file_id}: {e}")
+                logging.error(traceback.format_exc())
+                return {
+                    'fileId': file_id,
+                    'success': False,
+                    'message': f'Error: {str(e)}'
+                }
+        
+        # Process files in parallel using ThreadPoolExecutor
+        results = []
+        max_workers = min(5, len(file_ids))  # Use at most 5 threads but no more than we have files
+        
+        logging.info(f"Starting parallel metadata extraction for {len(file_ids)} files with {max_workers} workers")
+        
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            # Submit all tasks and create a mapping of futures to file IDs
+            future_to_file = {executor.submit(process_single_file, file_id): file_id for file_id in file_ids}
+            
+            # Process results as they complete
+            for future in as_completed(future_to_file):
+                file_id = future_to_file[future]
+                try:
+                    result = future.result()
+                    results.append(result)
+                    if result['success']:
+                        logging.info(f"Successfully processed metadata for file: {file_id}")
+                    else:
+                        logging.warning(f"Failed to process metadata for file: {file_id}")
+                except Exception as exc:
+                    logging.error(f"Error in future for file {file_id}: {exc}")
+                    results.append({
+                        'fileId': file_id,
+                        'success': False,
+                        'message': f'Error: {str(exc)}'
+                    })
+        
+        # Prepare the final response
+        success_count = sum(1 for r in results if r['success'])
+        
+        logging.info(f"Parallel metadata extraction complete. {success_count} of {len(file_ids)} files processed successfully.")
+        
+        return JsonResponse({
+            'success': True,
+            'message': f'Processed {success_count} of {len(file_ids)} files',
+            'results': results
+        })
+    
+    except Exception as e:
+        logging.error(f"Error in batch metadata processing: {e}")
+        logging.error(traceback.format_exc())
+        return JsonResponse({
+            'success': False,
+            'message': f'Error: {str(e)}'
+        }, status=500)
+
+@login_required
+def financial_analysis_view(request):
+    """Renders the financial analysis page."""
+    folder_id = request.GET.get('folderId')
+    summary_file_id = request.GET.get('summaryFileId')
+    
+    context = {
+        'folder_id': folder_id,
+        'summary_file_id': summary_file_id
+    }
+    return render(request, 'financial_analysis.html', context)
+
+@login_required
+def get_box_preview_token(request):
+    """API endpoint to generate a downscoped token for Box Content Preview for a single file."""
+    try:
+        file_id = request.GET.get('fileId')
+        if not file_id:
+            return JsonResponse({'success': False, 'error': 'File ID is required'}, status=400)
+
+        client = get_box_client()
+        
+        # Scopes for Content Preview: allows previewing and downloading/printing from preview
+        scopes = ['base_preview', 'item_download']
+        
+        file_to_preview = client.file(file_id)
+        
+        # Generate the downscoped token for the specific file
+        downscoped_token = client.downscope_token(scopes=scopes, item=file_to_preview)
+        
+        return JsonResponse({
+            'success': True,
+            'access_token': downscoped_token.access_token,
+            'file_id': file_id
+        })
+
+    except BoxAPIException as e:
+        logging.error(f"Box API Error in get_box_preview_token for file {file_id}: {e.status} - {getattr(e, 'message', 'Unknown error')}")
+        return JsonResponse({'success': False, 'error': f"Box API Error: {e.status} - {getattr(e, 'message', 'Unknown error')}"}, status=e.status if hasattr(e, 'status') else 500)
+    except Exception as e:
+        logging.error(f"Error in get_box_preview_token for file {file_id}: {e}", exc_info=True)
+        return JsonResponse({'success': False, 'error': str(e)}, status=500)

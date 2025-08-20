@@ -1,0 +1,169 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Your Accounts | Horizon Financial{% endblock %}
+
+{% block content %}
+<div class="mb-8">
+    <h1 class="text-3xl font-bold text-gray-800 mb-2">Your Accounts</h1>
+    <p class="text-gray-600">View and manage all your financial accounts in one place.</p>
+</div>
+
+{% if user.is_authenticated %}
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+        <!-- Checking Account -->
+        <div class="bg-white rounded-lg shadow-md overflow-hidden">
+            <div class="bg-horizon-primary text-white p-4">
+                <h2 class="text-xl font-semibold">Checking Account</h2>
+                <p class="text-sm opacity-80">**** 4567</p>
+            </div>
+            <div class="p-5">
+                <div class="flex justify-between mb-4">
+                    <span class="text-gray-500">Available Balance</span>
+                    <span class="text-xl font-bold">${{ user.username|length|add:"5432.21" }}</span>
+                </div>
+                <div class="flex justify-between text-sm mb-6">
+                    <span class="text-gray-500">Pending Transactions</span>
+                    <span>$245.50</span>
+                </div>
+                <div class="flex space-x-2">
+                    <a href="#" class="bg-horizon-primary text-white py-2 px-4 rounded hover:bg-opacity-90 transition-all">Transaction History</a>
+                    <a href="#" class="border border-horizon-primary text-horizon-primary py-2 px-4 rounded hover:bg-blue-50 transition-all">Transfer</a>
+                </div>
+            </div>
+        </div>
+
+        <!-- Savings Account -->
+        <div class="bg-white rounded-lg shadow-md overflow-hidden">
+            <div class="bg-horizon-primary text-white p-4">
+                <h2 class="text-xl font-semibold">Savings Account</h2>
+                <p class="text-sm opacity-80">**** 7890</p>
+            </div>
+            <div class="p-5">
+                <div class="flex justify-between mb-4">
+                    <span class="text-gray-500">Available Balance</span>
+                    <span class="text-xl font-bold">${{ user.username|length|add:"12875.55" }}</span>
+                </div>
+                <div class="flex justify-between text-sm mb-6">
+                    <span class="text-gray-500">Interest Rate</span>
+                    <span>1.25% APY</span>
+                </div>
+                <div class="flex space-x-2">
+                    <a href="#" class="bg-horizon-primary text-white py-2 px-4 rounded hover:bg-opacity-90 transition-all">Transaction History</a>
+                    <a href="#" class="border border-horizon-primary text-horizon-primary py-2 px-4 rounded hover:bg-blue-50 transition-all">Transfer</a>
+                </div>
+            </div>
+        </div>
+
+        <!-- Credit Card -->
+        <div class="bg-white rounded-lg shadow-md overflow-hidden">
+            <div class="bg-horizon-primary text-white p-4">
+                <h2 class="text-xl font-semibold">Credit Card</h2>
+                <p class="text-sm opacity-80">**** 1234</p>
+            </div>
+            <div class="p-5">
+                <div class="flex justify-between mb-4">
+                    <span class="text-gray-500">Current Balance</span>
+                    <span class="text-xl font-bold">$1,234.56</span>
+                </div>
+                <div class="flex justify-between text-sm mb-2">
+                    <span class="text-gray-500">Available Credit</span>
+                    <span>$8,765.44</span>
+                </div>
+                <div class="flex justify-between text-sm mb-6">
+                    <span class="text-gray-500">Payment Due</span>
+                    <span>$150.00 (May 25)</span>
+                </div>
+                <div class="flex space-x-2">
+                    <a href="#" class="bg-horizon-primary text-white py-2 px-4 rounded hover:bg-opacity-90 transition-all">Make Payment</a>
+                    <a href="#" class="border border-horizon-primary text-horizon-primary py-2 px-4 rounded hover:bg-blue-50 transition-all">View Statement</a>
+                </div>
+            </div>
+        </div>
+
+        <!-- Investment Account -->
+        <div class="bg-white rounded-lg shadow-md overflow-hidden">
+            <div class="bg-horizon-primary text-white p-4">
+                <h2 class="text-xl font-semibold">Investment Portfolio</h2>
+                <p class="text-sm opacity-80">**** 3456</p>
+            </div>
+            <div class="p-5">
+                <div class="flex justify-between mb-4">
+                    <span class="text-gray-500">Total Value</span>
+                    <span class="text-xl font-bold">${{ user.username|length|add:"54321.78" }}</span>
+                </div>
+                <div class="flex justify-between text-sm mb-2">
+                    <span class="text-gray-500">Performance (YTD)</span>
+                    <span class="text-green-600">+8.45%</span>
+                </div>
+                <div class="flex justify-between text-sm mb-6">
+                    <span class="text-gray-500">Last Updated</span>
+                    <span>Today, 3:45 PM</span>
+                </div>
+                <div class="flex space-x-2">
+                    <a href="#" class="bg-horizon-primary text-white py-2 px-4 rounded hover:bg-opacity-90 transition-all">Portfolio Details</a>
+                    <a href="#" class="border border-horizon-primary text-horizon-primary py-2 px-4 rounded hover:bg-gray-50 transition-all">Trade</a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="bg-white rounded-lg shadow-md p-6 mb-8">
+        <h2 class="text-xl font-semibold mb-4">Recent Transactions</h2>
+        <div class="overflow-x-auto">
+            <table class="min-w-full divide-y divide-gray-200">
+                <thead>
+                    <tr>
+                        <th class="px-4 py-3 bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
+                        <th class="px-4 py-3 bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Description</th>
+                        <th class="px-4 py-3 bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Account</th>
+                        <th class="px-4 py-3 bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Amount</th>
+                    </tr>
+                </thead>
+                <tbody class="bg-white divide-y divide-gray-200">
+                    <tr>
+                        <td class="px-4 py-3 whitespace-nowrap text-sm text-gray-500">May 12, 2024</td>
+                        <td class="px-4 py-3 whitespace-nowrap text-sm text-gray-800">Online Purchase - Amazon</td>
+                        <td class="px-4 py-3 whitespace-nowrap text-sm text-gray-500">Credit Card</td>
+                        <td class="px-4 py-3 whitespace-nowrap text-sm text-red-600">-$54.99</td>
+                    </tr>
+                    <tr>
+                        <td class="px-4 py-3 whitespace-nowrap text-sm text-gray-500">May 11, 2024</td>
+                        <td class="px-4 py-3 whitespace-nowrap text-sm text-gray-800">Grocery Store</td>
+                        <td class="px-4 py-3 whitespace-nowrap text-sm text-gray-500">Checking</td>
+                        <td class="px-4 py-3 whitespace-nowrap text-sm text-red-600">-$78.32</td>
+                    </tr>
+                    <tr>
+                        <td class="px-4 py-3 whitespace-nowrap text-sm text-gray-500">May 10, 2024</td>
+                        <td class="px-4 py-3 whitespace-nowrap text-sm text-gray-800">Paycheck - Acme Corp</td>
+                        <td class="px-4 py-3 whitespace-nowrap text-sm text-gray-500">Checking</td>
+                        <td class="px-4 py-3 whitespace-nowrap text-sm text-green-600">+$1,250.00</td>
+                    </tr>
+                    <tr>
+                        <td class="px-4 py-3 whitespace-nowrap text-sm text-gray-500">May 09, 2024</td>
+                        <td class="px-4 py-3 whitespace-nowrap text-sm text-gray-800">Transfer to Savings</td>
+                        <td class="px-4 py-3 whitespace-nowrap text-sm text-gray-500">Checking</td>
+                        <td class="px-4 py-3 whitespace-nowrap text-sm text-red-600">-$200.00</td>
+                    </tr>
+                    <tr>
+                        <td class="px-4 py-3 whitespace-nowrap text-sm text-gray-500">May 09, 2024</td>
+                        <td class="px-4 py-3 whitespace-nowrap text-sm text-gray-800">Transfer from Checking</td>
+                        <td class="px-4 py-3 whitespace-nowrap text-sm text-gray-500">Savings</td>
+                        <td class="px-4 py-3 whitespace-nowrap text-sm text-green-600">+$200.00</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+        <div class="mt-4 text-right">
+            <a href="#" class="text-horizon-primary hover:underline text-sm">View All Transactions</a>
+        </div>
+    </div>
+{% else %}
+    <div class="bg-white rounded-lg shadow-md p-8 text-center">
+        <div class="text-4xl text-gray-300 mb-4">🔒</div>
+        <h2 class="text-xl font-semibold mb-2">Please Log In</h2>
+        <p class="text-gray-600 mb-6">You need to be logged in to view your accounts.</p>
+        <a href="{% url 'login' %}" class="bg-horizon-primary text-white py-2 px-6 rounded-md hover:bg-opacity-90 transition-all">Log In</a>
+    </div>
+{% endif %}
+{% endblock %} 
