@@ -8,8 +8,21 @@
     .box-container {
         height: 600px;
         width: 100%;
-        border: 1px solid #e2e8f0;
-        border-radius: 0.375rem;
+        border: none;
+        border-radius: 0;
+        transition: height 0.4s ease-in-out;
+    }
+    
+    .box-container.expanded {
+        height: 80vh; /* Expand to 80% of viewport height */
+    }
+    
+    .folder-structure-section {
+        transition: margin-top 0.4s ease-in-out;
+    }
+    
+    .folder-structure-section.pushed-down {
+        margin-top: 2rem;
     }
 </style>
 {% endblock %}
@@ -43,8 +56,13 @@
             </div>
             {% endif %}
         {% else %}
-            <!-- Standard Box Content Explorer container -->
-            <div id="box-container" class="box-container"></div>
+            <!-- TEMPLATE UPDATE - Box Content Explorer with Blue Outline -->
+            <div class="box-wrapper" style="border: 1px solid #0065DF; border-radius: 8px; padding: 12px; background-color: #f8faff; margin: 8px 0;">
+                <div id="box-container" class="box-container" style="border: none; border-radius: 0;"></div>
+                <div class="box-branding" style="text-align: center; margin-top: 12px; padding: 6px; color: #0065DF; font-size: 12px; font-weight: 500;">
+                    🔒 Powered and secured by Box.com
+                </div>
+            </div>
         {% endif %}
     {% else %}
         <div class="bg-white rounded-lg shadow-md p-8 text-center">
@@ -57,7 +75,7 @@
 </div>
 
 {% if user.is_authenticated and folder_structure %}
-<div class="bg-white rounded-lg shadow-md p-6">
+<div class="bg-white rounded-lg shadow-md p-6 folder-structure-section" id="folder-structure">
     <h2 class="text-xl font-semibold mb-4">Document Folder Structure</h2>
     <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
         {% for folder in folder_structure %}
@@ -129,30 +147,54 @@
             async function initializeBoxExplorer() {
                 console.log("Initializing Box Content Explorer");
                 
-                // Fetch client name from the backend
-                const clientName = "{{ user.username }}";
+                try {
+                    // Step 1: Get or create the user's specific folder
+                    console.log("Getting user's client folder...");
+                    const folderResponse = await fetch('/api/box/client-folder/');
+                    
+                    if (!folderResponse.ok) {
+                        const errorText = await folderResponse.text();
+                        console.error(`Client folder request failed: ${folderResponse.status} - ${errorText}`);
+                        throw new Error(`Failed to get client folder: ${folderResponse.status}`);
+                    }
+                    
+                    const folderData = await folderResponse.json();
+                    console.log('Client folder data received:', folderData);
+                    
+                    if (!folderData.folderId) {
+                        throw new Error('No folder ID in response');
+                    }
+                    
+                    const folderId = folderData.folderId;
+                    console.log(`Using client folder ID: ${folderId} for user: ${folderData.clientName}`);
+                    
+                    // Step 2: Get access token for this specific folder
+                    const tokenResponse = await fetch(`/api/box/explorer-token/?folderId=${folderId}`);
+                    console.log(`Token response status: ${tokenResponse.status}`);
+                    
+                    if (!tokenResponse.ok) {
+                        const errorText = await tokenResponse.text();
+                        console.error(`Token request failed: ${tokenResponse.status} - ${errorText}`);
+                        throw new Error(`Failed to get access token: ${tokenResponse.status}`);
+                    }
+                    
+                    const tokenData = await tokenResponse.json();
+                    console.log('Token data received:', tokenData);
+                    
+                    if (!tokenData.token) {
+                        throw new Error('No access token in response');
+                    }
+                    
+                    const accessToken = tokenData.token;
+                    console.log(`Access token obtained (length: ${accessToken.length})`);
 
-                // First, get or create the client folder
-                console.log(`Fetching client folder for user: ${clientName}`);
-                const folderResponse = await fetch(`/api/box/client-folder/?clientName=${encodeURIComponent(clientName)}`);
-                if (!folderResponse.ok) throw new Error('Failed to get client folder');
-                const folderData = await folderResponse.json();
-                console.log('Folder response:', folderData);
-                const folderId = folderData.folderId;
-                
-                if (!folderId) {
-                    throw new Error('No folder ID returned from server');
+                    // Step 3: Initialize the Box Content Explorer with user's folder
+                    initializeStandardExplorer(folderId, accessToken);
+                    
+                } catch (error) {
+                    console.error('Error in initializeBoxExplorer:', error);
+                    showError(`Configuration Error: ${error.message}`);
                 }
-                console.log(`Using folder ID: ${folderId}`);
-
-                console.log(`Fetching downscoped token for folder ID: ${folderId}`);
-                const tokenResponse = await fetch(`/api/box/explorer-token/?folderId=${folderId}`);
-                if (!tokenResponse.ok) throw new Error('Failed to get access token');
-                const tokenData = await tokenResponse.json();
-                const accessToken = tokenData.token;
-
-                // Initialize the standard Box Content Explorer
-                initializeStandardExplorer(folderId, accessToken);
             }
 
             // Initialize the standard explorer with default configuration
@@ -164,14 +206,40 @@
 
                 const contentExplorer = new Box.ContentExplorer();
 
+                const logoUrlToUse = '{% static "images/Horizon_FS_Logo_dark_v2.png" %}';
+                console.log('=== LOGO DEBUG ===');
+                console.log('Logo URL being used:', logoUrlToUse);
+                console.log('==================');
+
                 const explorerConfig = {
                     container: '#box-container',
-                    logoUrl: '{% static "images/logo.png" %}',
+                    logoUrl: logoUrlToUse,
                     canDelete: true,
                     canUpload: true,
                     canRename: true,
                     canCreateNewFolder: true,
-                    defaultView: 'files'
+                    canShare: true,
+                    canPreview: true,
+                    canDownload: true,
+                    defaultView: 'files',
+                    showUploadButton: true,
+                    showCreateFolderButton: true,
+                    // Preview configuration for better document viewing
+                    previewConfig: {
+                        showDownload: true,
+                        showPrint: true,
+                        showAnnotations: false,
+                        fitToWindow: true, // Fit document to window when expanded
+                        showSidebar: false // Hide sidebar for more document space
+                    },
+                    requestInterceptor: function(request) {
+                        console.log('Box API request:', request);
+                        return request;
+                    },
+                    responseInterceptor: function(response) {
+                        console.log('Box API response:', response);
+                        return response;
+                    }
                 };
 
                 try {
@@ -185,11 +253,35 @@
                         }
                     });
                     
+                    // Add error event listener to catch Box UI errors
+                    contentExplorer.addListener('error', function(error) {
+                        console.error('Box Content Explorer error:', error);
+                        showError(`Box UI Error: ${error.message || 'Unknown Box error'}`);
+                    });
+                    
+                    console.log(`Calling contentExplorer.show() with folderId: ${folderId}, token length: ${accessToken.length}`);
+                    console.log('Full explorer config:', JSON.stringify(explorerConfig, null, 2));
+                    
                     contentExplorer.show(folderId, accessToken, explorerConfig);
                     console.log('Standard Box Content Explorer initialized successfully');
+                    
+                    // Additional debugging: check if the logo was actually applied
+                    setTimeout(() => {
+                        const boxContainer = document.querySelector('#box-container');
+                        if (boxContainer) {
+                            const logoElements = boxContainer.querySelectorAll('img');
+                            console.log('Found logo elements in Box UI:', logoElements.length);
+                            logoElements.forEach((img, index) => {
+                                console.log(`Logo ${index}:`, img.src);
+                            });
+                        }
+                    }, 3000);
+                    
+                    // Add manual expansion controls
+                    setupManualExpansion();
                 } catch (err) {
                     console.error('Error initializing Box Content Explorer:', err);
-                    showError(err.message);
+                    showError(`Box Initialization Error: ${err.message}`);
                 }
             }
 
@@ -262,6 +354,96 @@
             showError(error.message);
         }
         {% endif %}
+        
+        // Function to setup manual expansion controls
+        function setupManualExpansion() {
+            // Add manual expand/collapse toggle button positioned above the Box UI
+            setTimeout(() => {
+                const boxContainer = document.getElementById('box-container');
+                if (boxContainer) {
+                    // Create a container div to position the button above the Box UI
+                    const buttonContainer = document.createElement('div');
+                    buttonContainer.style.position = 'relative';
+                    buttonContainer.style.textAlign = 'right';
+                    buttonContainer.style.marginBottom = '8px';
+                    
+                    // Create toggle button
+                    const toggleButton = document.createElement('button');
+                    toggleButton.innerHTML = '⛶ Expand View';
+                    toggleButton.id = 'expand-toggle';
+                    toggleButton.style.background = '#122f42';
+                    toggleButton.style.color = 'white';
+                    toggleButton.style.border = 'none';
+                    toggleButton.style.padding = '8px 16px';
+                    toggleButton.style.borderRadius = '4px';
+                    toggleButton.style.cursor = 'pointer';
+                    toggleButton.style.fontSize = '13px';
+                    toggleButton.style.fontWeight = '500';
+                    toggleButton.style.boxShadow = '0 2px 4px rgba(0,0,0,0.1)';
+                    toggleButton.style.transition = 'background-color 0.2s';
+                    
+                    // Add hover effect
+                    toggleButton.onmouseenter = function() {
+                        toggleButton.style.background = '#0e2535';
+                    };
+                    toggleButton.onmouseleave = function() {
+                        toggleButton.style.background = '#122f42';
+                    };
+                    
+                    toggleButton.onclick = function() {
+                        const isExpanded = boxContainer.classList.contains('expanded');
+                        if (isExpanded) {
+                            collapseBoxContainer();
+                            toggleButton.innerHTML = '⛶ Expand View';
+                        } else {
+                            expandBoxContainer();
+                            toggleButton.innerHTML = '⛷ Compact View';
+                        }
+                    };
+                    
+                    buttonContainer.appendChild(toggleButton);
+                    
+                    // Insert the button container right before the Box container
+                    boxContainer.parentNode.insertBefore(buttonContainer, boxContainer);
+                    
+                    console.log('Added manual expand/collapse toggle button above Box UI');
+                }
+            }, 2000);
+        }
+        
+
+        
+        // Function to expand the Box container
+        function expandBoxContainer() {
+            const boxContainer = document.getElementById('box-container');
+            const folderStructure = document.getElementById('folder-structure');
+            
+            if (boxContainer) {
+                boxContainer.classList.add('expanded');
+            }
+            if (folderStructure) {
+                folderStructure.classList.add('pushed-down');
+            }
+        }
+        
+        // Function to collapse the Box container back to normal size
+        function collapseBoxContainer() {
+            const boxContainer = document.getElementById('box-container');
+            const folderStructure = document.getElementById('folder-structure');
+            
+            if (boxContainer) {
+                boxContainer.classList.remove('expanded');
+            }
+            if (folderStructure) {
+                folderStructure.classList.remove('pushed-down');
+            }
+            
+            // Update button text if it exists
+            const toggleButton = document.getElementById('expand-toggle');
+            if (toggleButton) {
+                toggleButton.innerHTML = '⛶ Expand View';
+            }
+        }
     });
 </script>
 {% endblock %} 

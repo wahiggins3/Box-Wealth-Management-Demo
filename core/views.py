@@ -116,18 +116,70 @@ def register(request):
 def box_client_folder(request):
     """API endpoint to get or create a client folder structure."""
     try:
-        client_name = request.GET.get('clientName')
+        # Derive client name from onboarding info, then user fields, then username
+        user = request.user
+        client_name = None
+        
+        # First try to get from onboarding info
+        try:
+            onboarding_info = user.onboarding_info
+            if onboarding_info and onboarding_info.full_name:
+                client_name = onboarding_info.full_name.strip()
+                logging.info(f"Using client name from onboarding info: {client_name}")
+        except (AttributeError, ClientOnboardingInfo.DoesNotExist):
+            logging.info("No onboarding info found, falling back to user fields")
+        
+        # Fallback to user first/last name
         if not client_name:
-            return JsonResponse({'error': 'Client name is required'}, status=400)
+            if user.first_name and user.last_name:
+                client_name = f"{user.first_name} {user.last_name}"
+                logging.info(f"Using client name from user fields: {client_name}")
+        
+        # Final fallback to username
+        if not client_name:
+            client_name = user.username
+            logging.info(f"Using client name from username: {client_name}")
+        
+        logging.info(f"Creating/accessing folder for user: {client_name}")
         
         # Get the Box client
         client = get_box_client()
         
-        # The parent folder where all client folders are stored
-        parent_folder_id = '320099222198'  # Specific parent folder for client documents
+        # Use the specified parent folder ID with fallback
+        parent_folder_id = '336919509525'  # Your specified root folder
         
-        # Check if client folder exists
-        items = client.folder(folder_id=parent_folder_id).get_items(limit=1000)
+        # Check if parent folder is accessible, fallback to root if not
+        try:
+            # First test if we can access the folder info (lighter call than get_items)
+            folder_info = client.folder(folder_id=parent_folder_id).get()
+            logging.info(f"Successfully accessed parent folder {parent_folder_id}: {folder_info.name}")
+            # Now get items
+            items = client.folder(folder_id=parent_folder_id).get_items(limit=1000)
+        except Exception as e:
+            logging.warning(f"Cannot access folder {parent_folder_id}: {e}. Falling back to service account root.")
+            parent_folder_id = '0'  # Fallback to service account root
+            try:
+                # Create a "Clients" folder under root if it doesn't exist
+                root_items = client.folder(folder_id='0').get_items(limit=1000)
+                clients_folder = None
+                for item in root_items:
+                    if item.name == 'Clients' and item.type == 'folder':
+                        clients_folder = item
+                        break
+                
+                if not clients_folder:
+                    clients_folder = client.folder('0').create_subfolder('Clients')
+                    logging.info(f"Created 'Clients' folder: {clients_folder.id}")
+                
+                parent_folder_id = clients_folder.id
+                items = client.folder(folder_id=parent_folder_id).get_items(limit=1000)
+                logging.info(f"Using 'Clients' folder as parent: {parent_folder_id}")
+            except Exception as fallback_error:
+                logging.error(f"Fallback also failed: {fallback_error}")
+                # Final fallback to root
+                parent_folder_id = '0'
+                items = client.folder(folder_id=parent_folder_id).get_items(limit=1000)
+        
         client_folder = None
         
         for item in items:
@@ -246,28 +298,27 @@ def box_explorer_token(request):
         # Define the scopes for the downscoped token
         # These scopes are specifically for the Content Explorer UI Element
         scopes = [
-            'base_explorer',  # Basic explorer functionality
-            'item_preview',   # Preview files
-            'item_download',  # Download files
-            'item_rename',    # Rename files
-            'item_delete',    # Delete files
-            'item_share',     # Share files
-            'item_upload'     # Upload files
+            'base_explorer',
+            'item_preview',
+            'item_upload',
+            'item_delete',
+            'item_rename'
         ]
         
-        # Generate the downscoped token
-        # The resource is the specific folder we're accessing
-        box_response = client.downscope_token(
-            scopes=scopes,
-            item=client.folder(folder_id=folder_id)
-        )
+        # Generate the downscoped token (MVP: fall back to full service token if scopes insufficient)
+        try:
+            box_response = client.downscope_token(
+                scopes=scopes,
+                item=client.folder(folder_id=folder_id)
+            )
+            token_value = box_response['access_token']
+        except Exception as e:
+            logging.warning(f"Downscope failed ({e}); falling back to service access token for MVP.")
+            # Use service account access token directly
+            token_value = client.auth.access_token
         
         # Return the token in the response
-        return JsonResponse({
-            'success': True,
-            'token': box_response['access_token'],
-            'folderId': folder_id
-        })
+        return JsonResponse({'success': True, 'token': token_value, 'folderId': folder_id})
         
     except Exception as e:
         logging.error(f"Error in box_explorer_token: {e}", exc_info=True)
@@ -370,6 +421,26 @@ def wealth_onboarding(request):
             onboarding_info.save()
             
             logging.info(f"Saved onboarding info for user {request.user.username}")
+            
+            # Create the Box folder structure for this client
+            try:
+                logging.info(f"Creating Box folder structure for user {request.user.username}")
+                # Call the box_client_folder endpoint to ensure folder structure is created
+                from django.test import RequestFactory
+                factory = RequestFactory()
+                folder_request = factory.get('/api/box/client-folder/')
+                folder_request.user = request.user
+                
+                # Call our own view to create the folder structure
+                folder_response = box_client_folder(folder_request)
+                if folder_response.status_code == 200:
+                    logging.info(f"Successfully created Box folder structure for user {request.user.username}")
+                else:
+                    logging.warning(f"Box folder creation returned status {folder_response.status_code}")
+            except Exception as e:
+                logging.error(f"Error creating Box folder structure for user {request.user.username}: {e}")
+                # Don't fail the onboarding process if folder creation fails
+            
             context['success_message'] = 'Your information has been saved successfully!'
             
             # Redirect to document upload page
@@ -1440,11 +1511,17 @@ def process_document_metadata(request):
             base_metadata = fields_dict
             extraction_result['data'] = base_metadata
         
-        # Log successful metadata application
+        # For demo: Skip actual metadata application, just extract document type for UI
         if base_metadata:
-            logging.info(f"✅ APPLYING METADATA to {file_info.name} (ID: {file_id})")
+            logging.info(f"✅ DEMO MODE: Skipping metadata storage, using classification for UI updates only")
+            logging.info(f"Extracted classification data: {json.dumps(base_metadata, indent=2)}")
         
-        application_result = application_service.apply_base_metadata(file_id, base_metadata)
+        # Simulate successful metadata application for demo
+        application_result = {
+            'success': True,
+            'message': 'Document classification completed for demo (metadata storage skipped)',
+            'data': base_metadata
+        }
         
         # Log application success/failure
         if application_result['success']:
@@ -1474,40 +1551,17 @@ def process_document_metadata(request):
         else:
             logging.info(f"❓ Document type could not be determined for {file_info.name}")
         
-        # Step 4: If document type is identified, extract and apply document-specific metadata
-        document_type_result = {'success': True, 'message': 'No document type identified'}
+        # Step 4: For demo, skip document-specific metadata processing
+        document_type_result = {
+            'success': True, 
+            'message': f'Document type identified as {document_type or "Unknown"} - demo mode, skipping detailed metadata extraction'
+        }
         if document_type:
-            logging.info(f"Document type identified as '{document_type}' for file {file_id}, extracting specific metadata")
-            
-            # Extract document-specific metadata
-            doc_extraction_result = extraction_service.extract_document_type_metadata(file_id, document_type)
-            
-            if doc_extraction_result['success']:
-                doc_metadata = doc_extraction_result.get('data', {})
-                if doc_metadata:
-                    logging.info(f"📊 DOCUMENT-SPECIFIC METADATA for {file_info.name}:")
-                    for field, value in doc_metadata.items():
-                        if value:
-                            logging.info(f"  {field}: {value}")
-                
-                document_type_result = application_service.apply_document_type_metadata(
-                    file_id, document_type, doc_metadata
-                )
-                
-                if document_type_result['success']:
-                    logging.info(f"✅ DOCUMENT-SPECIFIC METADATA APPLIED to {file_info.name}")
-                else:
-                    logging.warning(f"❌ Document-specific metadata application failed for {file_info.name}: {document_type_result['message']}")
-            else:
-                logging.warning(f"❌ Document-specific metadata extraction failed for {file_info.name}: {doc_extraction_result['message']}")
-                document_type_result = {
-                    'success': False,
-                    'message': f"Document-specific metadata extraction failed: {doc_extraction_result['message']}"
-                }
+            logging.info(f"✅ DEMO MODE: Document type '{document_type}' identified for {file_info.name} - skipping detailed metadata processing")
         
-        # Step 5: Process address validation metadata for all files
-        logging.info(f"Processing address validation metadata for file {file_id}")
-        address_validation_result = {'success': True, 'message': 'Address validation skipped'}
+        # Step 5: For demo, skip address validation processing
+        logging.info(f"✅ DEMO MODE: Skipping address validation for file {file_id}")
+        address_validation_result = {'success': True, 'message': 'Address validation skipped for demo'}
         
         try:
             # Ensure the address validation template is attached
@@ -1715,24 +1769,29 @@ def check_uploaded_files(request):
         logging.info(f"Getting items in folder {folder_id}...")
         items = folder.get_items(limit=100)
         
-        # Format the result
+        # Format the result - include both files and folders
         files = []
         for item in items:
+            item_data = {
+                'id': item.id,
+                'name': item.name,
+                'type': item.type,
+                'size': getattr(item, 'size', None) if item.type == 'file' else None,
+                'created_at': getattr(item, 'created_at', None),
+                'modified_at': getattr(item, 'modified_at', None)
+            }
+            files.append(item_data)
             if item.type == 'file':
-                file_data = {
-                    'id': item.id,
-                    'name': item.name,
-                    'type': item.type,
-                    'size': getattr(item, 'size', None),
-                    'created_at': getattr(item, 'created_at', None),
-                    'modified_at': getattr(item, 'modified_at', None)
-                }
-                files.append(file_data)
                 logging.info(f"FOUND FILE: {item.name} (ID: {item.id})")
+            elif item.type == 'folder':
+                logging.info(f"FOUND FOLDER: {item.name} (ID: {item.id})")
         
-        logging.info(f"========== FOUND {len(files)} FILES IN FOLDER {folder_id} ==========")
+        file_count = len([f for f in files if f['type'] == 'file'])
+        folder_count = len([f for f in files if f['type'] == 'folder'])
+        logging.info(f"========== FOUND {file_count} FILES AND {folder_count} FOLDERS IN FOLDER {folder_id} ==========")
         
         # Check if this is a tracking verification for a specific file
+        file_found = False
         if file_id:
             file_found = any(file['id'] == file_id for file in files)
             if file_found:
@@ -1741,11 +1800,11 @@ def check_uploaded_files(request):
                 logging.info(f"File details: {file_details}")
             else:
                 logging.warning(f"FILE VERIFICATION FAILED: File ID {file_id} NOT FOUND in folder {folder_id}")
-                logging.warning(f"All files in folder: {', '.join(file['name'] + ' (' + file['id'] + ')' for file in files)}")
+                logging.warning(f"All items in folder: {', '.join(f['name'] + ' (' + f['id'] + ')' for f in files)}")
         
         return JsonResponse({
             'success': True,
-            'message': f"Found {len(files)} files in folder",
+            'message': f"Found {file_count} files and {folder_count} folders in folder",
             'files': files,
             'file_verification': file_id is not None and file_found if file_id else None
         })
@@ -1932,22 +1991,8 @@ def process_documents_metadata_batch(request):
                         'message': f'Could not access file: {str(e)}'
                     }
                 
-                # Step 1: Ensure the base metadata template is attached to the file
-                try:
-                    # Check if metadata already exists
-                    try:
-                        metadata = file_obj.metadata(scope='enterprise_218068865', template='financialDocumentBase').get()
-                        logging.info(f"Base metadata template already exists for file {file_id}")
-                    except BoxAPIException as e:
-                        # If 404, metadata doesn't exist yet - create it with empty values
-                        if e.status == 404:
-                            metadata = file_obj.metadata(scope='enterprise_218068865', template='financialDocumentBase').create({})
-                            logging.info(f"Applied base metadata template to file {file_id}")
-                        else:
-                            raise e
-                except Exception as template_error:
-                    logging.error(f"Error with metadata template for file {file_id}: {template_error}")
-                    # Continue anyway as the extraction might still work
+                # Step 1: DEMO MODE - Skip metadata template attachment
+                logging.info(f"✅ DEMO MODE: Skipping metadata template for file {file_id}")
                 
                 # Step 2: Extract base metadata
                 logging.info(f"Extracting base metadata for file {file_id}")
@@ -1966,17 +2011,22 @@ def process_documents_metadata_batch(request):
                 base_metadata = extraction_result.get('data', {})
                 logging.info(f"Successfully extracted base metadata for file {file_id}")
                 
-                # Apply base metadata
-                application_result = application_service.apply_base_metadata(file_id, base_metadata)
-                if not application_result['success']:
-                    logging.warning(f"Base metadata application failed for file {file_id}: {application_result['message']}")
-                    return {
-                        'fileId': file_id,
-                        'success': False,
-                        'message': f"Base metadata application failed: {application_result['message']}",
-                        'application_result': application_result,
-                        'extraction_result': extraction_result
-                    }
+                # DEMO MODE - Skip base metadata application
+                logging.info(f"✅ DEMO MODE: Skipping metadata storage for file {file_id}, using classification for UI only")
+                
+                # Add debug information for educational purposes
+                debug_info = {
+                    'ai_agent_request': extraction_result.get('debug_request', {}),
+                    'ai_agent_response': extraction_result.get('debug_response', {}),
+                    'extracted_data': base_metadata
+                }
+                
+                application_result = {
+                    'success': True,
+                    'message': 'Demo mode - metadata storage skipped',
+                    'data': base_metadata,
+                    'debug_info': debug_info
+                }
                 
                 # Check if document type was determined
                 document_type = None
@@ -1989,104 +2039,19 @@ def process_documents_metadata_batch(request):
                 elif isinstance(base_metadata, dict) and 'documentType' in base_metadata:
                     document_type = base_metadata['documentType']
                 
-                document_type_result = {'success': True, 'message': 'No document type identified'}
+                # DEMO MODE - Skip document-specific processing, just log the type
+                document_type_result = {'success': True, 'message': f'Document type: {document_type or "Unknown"} - demo mode'}
                 if document_type:
-                    logging.info(f"Document type determined: {document_type} for file {file_id}")
-                    
-                    # Extract document-specific metadata
-                    doc_type_extraction = extraction_service.extract_document_type_metadata(file_id, document_type)
-                    
-                    if doc_type_extraction['success']:
-                        logging.info(f"Document-specific metadata extraction successful for {document_type} (file {file_id})")
-                        
-                        # Apply document-specific metadata
-                        doc_type_application = application_service.apply_document_type_metadata(
-                            file_id, 
-                            document_type, 
-                            doc_type_extraction.get('data', {})
-                        )
-                        
-                        if doc_type_application['success']:
-                            logging.info(f"Document-specific metadata application successful for {document_type} (file {file_id})")
-                            document_type_result = doc_type_application
-                        else:
-                            logging.warning(f"Document-specific metadata application failed for {document_type} (file {file_id})")
-                            document_type_result = doc_type_application
-                    else:
-                        logging.warning(f"Document-specific metadata extraction failed for {document_type} (file {file_id})")
-                        document_type_result = doc_type_extraction
+                    logging.info(f"✅ DEMO MODE: Document type '{document_type}' identified for file {file_id} - skipping detailed processing")
                 else:
                     logging.info(f"No document type determined for file {file_id}")
                 
-                # Step 3: Process address validation metadata for all files
-                logging.info(f"Processing address validation metadata for file {file_id}")
-                address_validation_result = {'success': True, 'message': 'Address validation skipped'}
+                # Step 3: DEMO MODE - Skip address validation
+                logging.info(f"✅ DEMO MODE: Skipping address validation for file {file_id}")
+                address_validation_result = {'success': True, 'message': 'Address validation skipped for demo'}
                 
-                try:
-                    # Ensure the address validation template is attached
-                    try:
-                        metadata = file_obj.metadata(scope='enterprise_218068865', template='address_validation').get()
-                        logging.info(f"Address validation metadata template already exists for file {file_id}")
-                    except BoxAPIException as e:
-                        if e.status == 404:
-                            metadata = file_obj.metadata(scope='enterprise_218068865', template='address_validation').create({})
-                            logging.info(f"Applied address validation metadata template to file {file_id}")
-                        else:
-                            raise e
-                    
-                    # Extract address validation metadata
-                    address_extraction = extraction_service.extract_address_validation_metadata(file_id)
-                    
-                    if address_extraction['success']:
-                        logging.info(f"Address validation metadata extraction successful for file {file_id}")
-                        
-                        # Apply address validation metadata
-                        address_application = application_service.apply_address_validation_metadata(
-                            file_id,
-                            address_extraction.get('data', {})
-                        )
-                        
-                        if address_application['success']:
-                            logging.info(f"✅ ADDRESS VALIDATION METADATA APPLIED to {file_info.name}")
-                            address_validation_result = address_application
-                            
-                            # Step 5.1: Compare extracted address with client's stored address
-                            extracted_address_data = address_extraction.get('data', {})
-                            if extracted_address_data:
-                                logging.info(f"🔍 COMPARING EXTRACTED ADDRESS with client stored address for {file_info.name}")
-                                address_comparison_result = AddressComparisonService.compare_addresses(
-                                    user=request.user,
-                                    extracted_address=extracted_address_data,
-                                    file_id=file_id,
-                                    file_name=file_info.name
-                                )
-                                
-                                if address_comparison_result['success']:
-                                    if address_comparison_result['has_mismatch']:
-                                        mismatch_type = address_comparison_result['mismatch_type']
-                                        logging.warning(f"⚠️ ADDRESS MISMATCH DETECTED ({mismatch_type}) for {file_info.name}")
-                                        logging.warning(f"  Client address: {address_comparison_result['client_address']['full_address']}")
-                                        logging.warning(f"  Extracted address: {address_comparison_result['extracted_address'].get('full_address', 'N/A')}")
-                                    else:
-                                        logging.info(f"✅ ADDRESS MATCH CONFIRMED for {file_info.name}")
-                                else:
-                                    logging.warning(f"❌ Address comparison failed for {file_info.name}: {address_comparison_result['message']}")
-                                
-                                # Include comparison result in the address validation result
-                                address_validation_result['address_comparison'] = address_comparison_result
-                        else:
-                            logging.warning(f"❌ Address validation metadata application failed for {file_info.name}: {address_application['message']}")
-                            address_validation_result = address_application
-                    else:
-                        logging.warning(f"Address validation metadata extraction failed for file {file_id}")
-                        address_validation_result = address_extraction
-                        
-                except Exception as address_error:
-                    logging.error(f"Error in address validation processing for file {file_id}: {address_error}")
-                    address_validation_result = {
-                        'success': False,
-                        'message': f'Address validation error: {str(address_error)}'
-                    }
+                # DEMO MODE - Skip all address validation processing
+                pass
                 
                 return {
                     'fileId': file_id,
@@ -2096,7 +2061,8 @@ def process_documents_metadata_batch(request):
                     'application_result': application_result,
                     'documentType': document_type,
                     'document_type_result': document_type_result,
-                    'address_validation_result': address_validation_result
+                    'address_validation_result': address_validation_result,
+                    'debug_info': debug_info
                 }
                 
             except Exception as e:

@@ -1,150 +1,242 @@
-# Horizon Financial Portal
+# Box Wealth Onboarding Demo
 
-A modern Django web application that transforms a static financial information website into a dynamic, interactive portal with user authentication, account management, document access, and more.
+A comprehensive Django web application showcasing **Box.com AI integration** for financial document processing and wealth management onboarding. This demo platform demonstrates real-time document classification using custom Box AI agents and provides an educational interface for understanding AI-powered document workflows.
 
-## Features
+## 🎯 Demo Purpose
 
-- **User Authentication**: Secure login/logout functionality and user profiles
-- **Dashboard**: Quick overview of financial accounts and summary information
-- **Account Management**: View and manage financial accounts with detailed information
-- **Document Access**: Integration with Box.com API for secure document storage and retrieval
-- **Financial Products**: Browse available financial products and services
-- **Support**: Contact form and resources for customer support
-- **Responsive Design**: Modern UI using Tailwind CSS for all device sizes
+This application serves as a **complete demonstration platform** for:
+- **Box AI Agent Integration** - Custom Google Gemini 2.5 Pro document classifier
+- **Real-time Document Processing** - Upload and classify financial documents instantly  
+- **Educational Transparency** - Debug mode showing AI requests/responses
+- **Professional UI** - Clean, branded interface perfect for client presentations
+- **End-to-End Workflow** - From user onboarding to document classification
 
-## Technologies Used
+## 🚀 Key Features
+
+### 📄 **Box AI Document Classification**
+- **Custom AI Agent**: "Financial Document Classifier" using Google Gemini 2.5 Pro
+- **Real-time Processing**: Documents classified instantly upon upload
+- **Document Types**: 1099, W-2, Account Statements, Mortgage Statements, Trust Documents, Asset Lists, 1040, Personal Financial Statements, Life Insurance Documents
+- **Visual Feedback**: Document cards turn green with counts when classified
+- **Session Tracking**: Only shows files uploaded in current session
+
+### 🔍 **Educational Debug Mode**
+- **Toggle Debug View**: Show/hide AI agent interactions in real-time
+- **Request Inspection**: View exact API calls sent to Box AI agent
+- **Response Analysis**: See raw JSON responses from Google Gemini 2.5 Pro
+- **Processing Flow**: Step-by-step visibility into classification workflow
+- **Perfect for Demos**: Technical transparency for educational presentations
+
+### 📁 **Box Content Integration**
+- **Content Explorer**: Browse and manage documents with Box UI elements
+- **Content Uploader**: Drag-and-drop file uploads directly to Box
+- **Dynamic Folders**: Auto-creates client folders based on user names
+- **Folder Structure**: Organized with "Shared with Advisor" subfolders
+- **Downscoped Tokens**: Secure, limited-permission access tokens
+
+### 🎨 **Professional UI/UX**
+- **Box Branding**: Clear "Powered and secured by Box.com" identification
+- **Horizon Financial Services**: Complete branded experience
+- **Responsive Design**: Works on all devices
+- **Dynamic Expansion**: Document viewer can expand for better preview
+- **Clean Styling**: Professional appearance perfect for client demos
+
+## 🛠 Technologies Used
 
 - **Backend**: Django (Python web framework)
+- **AI Integration**: Box AI with Google Gemini 2.5 Pro
+- **Document Storage**: Box.com API with JWT authentication
 - **Frontend**: HTML, CSS, JavaScript, Tailwind CSS
+- **Box UI Elements**: Content Explorer, Content Uploader, Content Preview
 - **Authentication**: Django's built-in authentication system
-- **Database**: SQLite (default, configurable to other databases)
-- **Document Storage**: Box.com API integration
-- **UI Components**: Alpine.js for interactive components
+- **Database**: SQLite with custom onboarding models
 
-## Setup and Installation
+## ⚙️ Setup and Installation
 
 ### Prerequisites
 
-- Python 3.8 or higher
-- pip (Python package manager)
-- Virtual environment tool (optional but recommended)
+- Python 3.12 or higher
+- Box Developer Account with Custom App (Server Authentication/JWT)
+- Box AI Agent configured (Financial Document Classifier)
 
-### Installation
+### Quick Setup
 
-1. Clone the repository:
-   ```
+1. **Clone and Setup Environment**:
+   ```bash
    git clone <repository-url>
-   cd financial-portal
-   ```
-
-2. Create and activate a virtual environment:
-   ```
+   cd BoxWealthOnboardingDemo
    python -m venv .venv
-   source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-   ```
-
-3. Install dependencies:
-   ```
+   source .venv/bin/activate  # Windows: .venv\Scripts\activate
    pip install -r requirements.txt
    ```
 
-4. Set up environment variables by creating a `.env` file in the project root based on `.env.example`:
-   ```
-   # Django Settings
-   SECRET_KEY=your-django-secret-key-here
-   DEBUG=True
-   ALLOWED_HOSTS=localhost,127.0.0.1
-
-   # Box API Settings
-   BOX_CLIENT_ID=your-box-client-id
-   BOX_CLIENT_SECRET=your-box-client-secret
-   BOX_ENTERPRISE_ID=your-box-enterprise-id
-   BOX_JWT_KEY_ID=your-box-jwt-key-id
-   BOX_PRIVATE_KEY_PATH=/path/to/your/private_key.pem
-   BOX_JWT_PRIVATE_KEY_PASSPHRASE=your-passphrase
+2. **Configure Box Integration**:
+   - Create Box Custom App with Server Authentication (JWT)
+   - Download app configuration JSON
+   - Run setup script:
+   ```bash
+   python setup_env_from_json.py your-box-config.json
    ```
 
-5. Run database migrations:
-   ```
+3. **Database Setup**:
+   ```bash
    python manage.py migrate
-   ```
-
-6. Create a superuser:
-   ```
    python manage.py createsuperuser
    ```
 
-7. Start the development server:
-   ```
+4. **Start Demo**:
+   ```bash
    python manage.py runserver
    ```
 
-8. Visit `http://127.0.0.1:8000` in your browser to access the portal.
+Visit `http://127.0.0.1:8000` to access the demo.
 
-## Box API Integration
+## 🔧 Box.com Integration Points
 
-To fully enable document functionality, you'll need to set up a Box application:
+### 🤖 **AI Agent Configuration**
 
-1. Create a developer account at [Box Developer Console](https://developer.box.com/)
-2. Create a new "Custom App" with "Server Authentication (JWT)"
-3. Configure the application with appropriate permissions (at minimum: read/write for content)
-4. Download the app's configuration JSON (contains keys, IDs, etc.)
-5. Generate a public/private key pair (or use the ones Box generates)
-6. Update your `.env` file with the appropriate values from the configuration
+**Agent Details**:
+- **Name**: Financial Document Classifier  
+- **ID**: 36769377
+- **Model**: Google Gemini 2.5 Pro
+- **Type**: ai_agent_ask
 
-## Project Structure
+**Prompt Template**:
+```
+Analyze this financial document and classify it. Respond ONLY with valid JSON in this exact format:
+{
+  "documentType": "[exact type from list]",
+  "confidence": [0.0 to 1.0], 
+  "isLegible": [true/false],
+  "issuerName": "[company name if identifiable or empty string]",
+  "recipientName": "[recipient name if identifiable or empty string]"
+}
 
-- `portal_project/` - Django project settings and main configuration
-- `core/` - Main application with views, URLs, and business logic
-- `templates/` - HTML templates for the portal pages
-- `static/` - Static files (CSS, JavaScript, images)
-- `manage.py` - Django management script
+Valid documentType values (use exact text):
+- "1099" - IRS Form 1099 (any variant)
+- "W-2" - IRS Form W-2
+- "Account Statement" - Bank/brokerage/retirement statements
+- "Mortgage Statement" - Mortgage/loan statements  
+- "Trust Document" - Trust agreements or related documents
+- "Asset List" - Investment holdings or asset summaries
+- "1040" - IRS Form 1040
+- "Personal Financial Statement" - Net worth or financial summaries
+- "Life Insurance Document" - Insurance policies or forms
+- "Other" - Financial documents not matching above categories
+```
 
-## Development Guidelines
+### 🔐 **Authentication & Security**
 
-- Follow [PEP 8](https://www.python.org/dev/peps/pep-0008/) coding standards for Python code
-- Maintain consistent styling with the existing Tailwind CSS approach
-- Use Django's template inheritance to maintain consistent layout
-- Document any new features or API integrations
+**JWT Authentication**:
+```python
+# Environment Variables Required
+BOX_CLIENT_ID=your-box-client-id
+BOX_CLIENT_SECRET=your-box-client-secret  
+BOX_ENTERPRISE_ID=your-box-enterprise-id
+BOX_JWT_KEY_ID=your-box-jwt-key-id
+BOX_PRIVATE_KEY_PATH=path/to/private_key.pem
+BOX_JWT_PRIVATE_KEY_PASSPHRASE=your-passphrase
+```
 
-## License
+**Required Box Permissions**:
+- Write all files and folders stored in Box
+- Manage metadata on files and folders
+- Manage enterprise properties
+- Generate user access tokens
+- Perform Actions as Users
 
-[MIT License](LICENSE)
+### 📊 **API Endpoints**
 
-## Acknowledgements
+| Endpoint | Purpose | Box Integration |
+|----------|---------|-----------------|
+| `/api/box/client-folder/` | Create/get client folders | Folder API |
+| `/api/box/explorer-token/` | Generate downscoped tokens | Token API |
+| `/api/box/process-documents-batch/` | AI classification | AI Ask API |
+| `/api/box/check-uploads/` | List folder contents | Files API |
 
-- Horizon Financial Services (fictional company)
-- Box.com for document management API
-- Tailwind CSS for styling components
+### 🎛 **Box Admin Console Setup**
 
-## Box Content Explorer with Metadata View
+**Required Settings**:
+1. **App Authorization**: Authorize app in Box Admin Console
+2. **CORS Domains**: Add your domain (e.g., `http://127.0.0.1:8000`)
+3. **Dedicated Scopes**: Enable for downscoped tokens
+4. **AI Access**: Ensure AI features are enabled for your enterprise
 
-The documents page now includes an enhanced Box Content Explorer that supports metadata view alongside the traditional files view.
+## 📋 Demo Workflow
 
-### Features
+### 👤 **User Journey**
+1. **Registration**: New user creates account
+2. **Wealth Onboarding**: Complete onboarding form with name/details
+3. **Folder Creation**: Box folders auto-created based on user name
+4. **Document Upload**: Upload financial documents via Box widget
+5. **AI Classification**: Documents automatically classified by AI agent
+6. **Visual Feedback**: Document cards update with classification results
 
-- **Metadata View**: Displays files in a table format with metadata columns showing document type, issuer, recipient, document date, tax year, and legibility status
-- **Files View**: Traditional file browser view for standard file management
-- **View Toggle**: Users can switch between metadata and files view using toggle buttons
-- **Base Metadata Template**: Uses the `financialDocumentBase` metadata template to display structured information about financial documents
+### 🔍 **Debug Mode Demo**
+1. **Enable Debug**: Toggle debug mode on upload page
+2. **Upload Document**: Watch real-time AI processing
+3. **View Request**: See exact API call to Box AI agent
+4. **Analyze Response**: Inspect Google Gemini 2.5 Pro classification
+5. **UI Updates**: Observe how classification updates document cards
 
-### Implementation Details
+## 📁 Project Structure
 
-- **API Endpoint**: `/api/box/metadata-config/` provides metadata configuration for the Content Explorer
-- **Metadata Template**: `enterprise_218068865.financialDocumentBase` 
-- **Supported Fields**:
-  - Document Type (enum: 1099, W-2, Account Statement, etc.)
-  - Issuer Name (string)
-  - Recipient Name (string) 
-  - Document Date (date)
-  - Tax Year (date)
-  - Is Legible (enum: Yes/No)
+```
+BoxWealthOnboardingDemo/
+├── core/                          # Main Django app
+│   ├── models.py                  # User onboarding models
+│   ├── views.py                   # Box integration views
+│   ├── services/                  # Box service layer
+│   │   ├── box_metadata_extraction.py    # AI agent integration
+│   │   ├── document_processing_service.py # Workflow orchestration
+│   │   └── box_webhook_handler.py         # Webhook processing
+├── templates/                     # HTML templates
+│   ├── documents.html             # Box Content Explorer
+│   ├── document_upload.html       # Box Content Uploader + Debug
+│   ├── wealth_onboarding.html     # User onboarding form
+├── static/
+│   ├── js/document_processing.js  # Box UI + AI integration
+│   ├── images/                    # Horizon Financial branding
+└── portal_project/                # Django settings
+```
 
-### Usage
+## 🎓 Educational Value
 
-1. Navigate to the Documents page
-2. Use the "Metadata View" button to see files with their metadata in a table format
-3. Use the "Files View" button to switch back to traditional file browser
-4. Files must have the base metadata template applied to appear in metadata view
+This demo showcases:
+- **Box AI Integration**: Real-world implementation of custom AI agents
+- **API Architecture**: Proper service layer separation and error handling  
+- **UI/UX Design**: Professional interface with educational transparency
+- **Security Patterns**: JWT authentication and downscoped tokens
+- **Workflow Automation**: End-to-end document processing pipeline
 
-The implementation follows Box's [Content Explorer metadata view documentation](https://developer.box.com/guides/embed/ui-elements/explorer-metadata/) and provides a seamless way to view and manage financial documents with their extracted metadata. 
+## 🔧 Development Notes
+
+### Custom Features Added
+- **Demo Mode**: Skips metadata storage, focuses on UI updates
+- **Session Tracking**: JavaScript Map for current session files
+- **Dynamic UI**: Expandable document viewer with manual controls
+- **Cache Busting**: Template versioning for development
+- **Error Handling**: Graceful fallbacks for Box API issues
+
+### Box UI Customization
+- **Logo Integration**: Custom Horizon Financial branding in Box widgets
+- **Border Styling**: Clean blue borders identifying Box components
+- **Event Handling**: Upload listeners for automatic processing
+- **Token Management**: Automatic refresh and scoping
+
+## 📞 Support
+
+For Box.com integration questions:
+- [Box Developer Documentation](https://developer.box.com/)
+- [Box AI Documentation](https://developer.box.com/guides/box-ai/)
+- [Box UI Elements](https://developer.box.com/guides/embed/ui-elements/)
+
+## 🏢 About
+
+**Horizon Financial Services** - A fictional wealth management company used for demonstration purposes.
+
+This project demonstrates enterprise-grade Box.com integration with AI-powered document processing, perfect for financial services, legal firms, or any organization requiring intelligent document classification and management.
+
+---
+
+**🎯 Ready for Demo!** This platform provides a complete, professional demonstration of Box AI capabilities with full educational transparency.

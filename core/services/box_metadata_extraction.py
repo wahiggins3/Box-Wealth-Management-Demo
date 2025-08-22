@@ -213,28 +213,67 @@ class BoxMetadataExtractionService:
             # Get the file object
             file_obj = self.client.file(file_id)
             
-            # Use the Box AI API endpoint for structured metadata extraction
-            url = 'https://api.box.com/2.0/ai/extract_structured'
+            # Use the appropriate Box AI API endpoint based on agent type
+            if template_key == 'financialDocumentBase':
+                # Use AI Ask endpoint for custom Financial Document Classifier
+                url = 'https://api.box.com/2.0/ai/ask'
+            else:
+                # Use structured extraction endpoint for other templates
+                url = 'https://api.box.com/2.0/ai/extract_structured'
             
-            # Define the request body based on Box API documentation
-            data = {
-                'items': [{
-                    'id': file_id,
-                    'type': 'file'
-                }],
-                'ai_agent': {
-                    'type': 'ai_agent_extract_structured',
-                    'long_text': {
-                        'model': 'azure__openai__gpt_4o_mini'
-                    },
-                    'basic_text': {
-                        'model': 'azure__openai__gpt_4o_mini'
+            # Use the custom Financial Document Classifier agent for document type identification
+            if template_key == 'financialDocumentBase':
+                # Use custom Financial Document Classifier agent for initial document type identification
+                data = {
+                    'mode': 'single_item_qa',
+                    'prompt': '''Analyze this financial document and classify it. Respond ONLY with valid JSON in this exact format:
+{
+  "documentType": "[exact type from list]",
+  "confidence": [0.0 to 1.0],
+  "isLegible": [true/false],
+  "issuerName": "[company name if identifiable or empty string]",
+  "recipientName": "[recipient name if identifiable or empty string]"
+}
+
+Valid documentType values (use exact text):
+- "1099" - IRS Form 1099 (any variant)
+- "W-2" - IRS Form W-2 
+- "Account Statement" - Bank/brokerage/retirement statements
+- "Mortgage Statement" - Mortgage/loan statements
+- "Trust Document" - Trust agreements or related documents
+- "Asset List" - Investment holdings or asset summaries
+- "1040" - IRS Form 1040
+- "Personal Financial Statement" - Net worth or financial summaries
+- "Life Insurance Document" - Insurance policies or forms
+- "Other" - Financial documents not matching above categories''',
+                    'items': [{
+                        'id': file_id,
+                        'type': 'file'
+                    }],
+                    'ai_agent': {
+                        'id': '36769377',
+                        'type': 'ai_agent_id'
                     }
                 }
-            }
+            else:
+                # Use generic structured extraction for other templates
+                data = {
+                    'items': [{
+                        'id': file_id,
+                        'type': 'file'
+                    }],
+                    'ai_agent': {
+                        'type': 'ai_agent_extract_structured',
+                        'long_text': {
+                            'model': 'azure__openai__gpt_4o_mini'
+                        },
+                        'basic_text': {
+                            'model': 'azure__openai__gpt_4o_mini'
+                        }
+                    }
+                }
             
-            # For address_validation and other custom templates, use field definitions
-            # For existing Box templates like financialDocumentBase, use template reference
+            # Add additional configuration based on template type and endpoint
             if template_key == 'address_validation':
                 # For address validation, we need to use our custom field definitions
                 # since this template is not a built-in Box template
@@ -245,9 +284,9 @@ class BoxMetadataExtractionService:
                 else:
                     logger.error(f"No field configuration found for template {template_key}")
                     return {'success': False, 'message': f'No field configuration for template {template_key}', 'file_id': file_id}
-            else:
-                # For built-in Box templates like financialDocumentBase, use metadata_template reference
-                # This is more reliable as it uses Box's existing template definitions
+            elif template_key != 'financialDocumentBase':
+                # For other built-in Box templates (not financialDocumentBase), use metadata_template reference
+                # financialDocumentBase uses AI Ask endpoint and doesn't need metadata_template reference
                 logger.info(f"Using metadata template reference for extraction")
                 data['metadata_template'] = {
                     'template_key': template_key,
@@ -256,6 +295,15 @@ class BoxMetadataExtractionService:
                 }
             
             logger.info(f"Sending extraction request to Box AI for file ID {file_id}: {json.dumps(data, indent=2)}")
+            
+            # Store debug information for educational purposes
+            debug_request = {
+                'endpoint': url,
+                'method': 'POST',
+                'payload': data,
+                'template_key': template_key,
+                'file_id': file_id
+            }
             
             # Make the API request directly using post
             try:
@@ -266,12 +314,53 @@ class BoxMetadataExtractionService:
                 response_json = response.json()
                 logger.info(f"Box AI extraction response for file ID {file_id}: {json.dumps(response_json, indent=2)}")
                 
+                # Store debug response for educational purposes
+                debug_response = {
+                    'status_code': response.status_code,
+                    'response_body': response_json,
+                    'success': response.status_code in [200, 202]
+                }
+                
                 # Check if extraction was successful
                 if response.status_code in [200, 202]:
                     logger.info(f"Extraction request successful for file {file_id}")
                     
                     # Process the response based on the structure from Box AI API
-                    if 'fields' in response_json and isinstance(response_json['fields'], list):
+                    if template_key == 'financialDocumentBase' and 'answer' in response_json:
+                        # Handle AI Ask response format from Financial Document Classifier
+                        logger.info(f"Processing Financial Document Classifier response for file ID {file_id}")
+                        answer = response_json['answer']
+                        
+                        try:
+                            import json
+                            # Parse JSON response from the classifier
+                            if isinstance(answer, str):
+                                parsed_answer = json.loads(answer)
+                            else:
+                                parsed_answer = answer
+                            
+                            logger.info(f"Parsed Financial Document Classifier result: {json.dumps(parsed_answer, indent=2)}")
+                            return {
+                                'success': True,
+                                'message': 'Document classification completed successfully',
+                                'data': parsed_answer,
+                                'file_id': file_id,
+                                'debug_request': debug_request,
+                                'debug_response': debug_response
+                            }
+                        except (json.JSONDecodeError, TypeError) as e:
+                            logger.error(f"Failed to parse Financial Document Classifier response: {e}")
+                            logger.error(f"Raw answer: {answer}")
+                            # Fallback to a basic response
+                            return {
+                                'success': True,
+                                'message': 'Document classification completed with parsing issues',
+                                'data': {'documentType': 'Other', 'confidence': 0.5, 'isLegible': True},
+                                'file_id': file_id,
+                                'debug_request': debug_request,
+                                'debug_response': debug_response
+                            }
+                    elif 'fields' in response_json and isinstance(response_json['fields'], list):
                         # Handle structured fields response format (expected from Box AI structured extract)
                         logger.info(f"Received structured fields response for file ID {file_id}")
                         field_dict = {}

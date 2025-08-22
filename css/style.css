@@ -47,6 +47,14 @@ main {
     padding: 2em;
 }
 
+/* Optimized styling for the new cropped logo */
+header img[alt="Horizon Financial"] {
+    height: 60px !important; /* Good size for the properly cropped logo */
+    width: auto !important;
+    display: inline-block;
+    /* No transform scaling needed since the new logo is properly cropped */
+}
+
 .tab-content {
     background-color: white;
     padding: 2em;

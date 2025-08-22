@@ -28,6 +28,32 @@ function saveProcessedFiles() {
 }
 
 /**
+ * Show error message in the UI
+ * @param {string} message - Error message to display
+ */
+function showErrorMessage(message) {
+    const uploaderElement = document.getElementById('box-uploader');
+    if (uploaderElement) {
+        uploaderElement.innerHTML = `
+            <div class="flex items-center justify-center h-full p-6 text-center">
+                <div>
+                    <div class="text-red-500 mb-4">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-12 w-12 mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                        </svg>
+                    </div>
+                    <h3 class="text-lg font-semibold mb-2">Upload Error</h3>
+                    <p class="text-gray-600">${message}</p>
+                    <button onclick="window.location.reload()" class="mt-4 bg-horizon-primary text-white py-2 px-4 rounded hover:bg-horizon-secondary">
+                        Try Again
+                    </button>
+                </div>
+            </div>
+        `;
+    }
+}
+
+/**
  * Get the CSRF token from cookies
  * @returns {string} - CSRF token value
  */
@@ -266,11 +292,48 @@ async function extractMetadataWithBoxAI(fileId, templateKey = 'financialDocument
         console.log(`Using template key: ${templateKey}`);
         
         // Define the request payload according to Box AI API requirements
-        const requestData = {
+        let requestData;
+        
+        if (templateKey === 'financialDocumentBase') {
+            // Use custom Financial Document Classifier agent for document type identification
+            requestData = {
+                mode: "single_item_qa",
+                prompt: `Analyze this financial document and classify it. Respond ONLY with valid JSON in this exact format:
+{
+  "documentType": "[exact type from list]",
+  "confidence": [0.0 to 1.0],
+  "isLegible": [true/false],
+  "issuerName": "[company name if identifiable or empty string]",
+  "recipientName": "[recipient name if identifiable or empty string]"
+}
+
+Valid documentType values (use exact text):
+- "1099" - IRS Form 1099 (any variant)
+- "W-2" - IRS Form W-2 
+- "Account Statement" - Bank/brokerage/retirement statements
+- "Mortgage Statement" - Mortgage/loan statements
+- "Trust Document" - Trust agreements or related documents
+- "Asset List" - Investment holdings or asset summaries
+- "1040" - IRS Form 1040
+- "Personal Financial Statement" - Net worth or financial summaries
+- "Life Insurance Document" - Insurance policies or forms
+- "Other" - Financial documents not matching above categories`,
+                items: [{
+                    id: fileId,
+                    type: "file"
+                }],
+                ai_agent: {
+                    id: "36769377",
+                    type: "ai_agent_id"
+                }
+            };
+        } else {
+            // Use generic structured extraction for other templates
+            requestData = {
             metadata_template: {
                 template_key: templateKey,
                 type: "metadata_template",
-                scope: "enterprise_218068865"  // Using the specific enterprise ID
+                    scope: "enterprise_218068865"
             },
             items: [{
                 id: fileId,
@@ -286,6 +349,7 @@ async function extractMetadataWithBoxAI(fileId, templateKey = 'financialDocument
                 }
             }
         };
+        }
         
         console.log(`Sending Box AI extraction request with payload:`, requestData);
         
@@ -386,7 +450,242 @@ async function extractMetadataWithBoxAI(fileId, templateKey = 'financialDocument
     }
 }
 
-// Function to initialize Box Content uploader
+// Function to initialize Box Content uploader for document upload page
+async function initializeBoxContentUploader(clientName, logoUrl) {
+    try {
+        console.log("========== INITIALIZING BOX CONTENT UPLOADER FOR DOCUMENT UPLOAD ==========");
+        
+        // Step 1: Get or create the client folder and access the "Shared with Advisor" subfolder
+        console.log(`Getting client folder for: ${clientName}`);
+        const folderResponse = await fetch('/api/box/client-folder/');
+        if (!folderResponse.ok) {
+            const errorText = await folderResponse.text();
+            console.error(`Failed to get client folder: ${errorText}`);
+            throw new Error('Failed to get client folder');
+        }
+        const folderData = await folderResponse.json();
+        const clientFolderId = folderData.folderId;
+        console.log(`Client folder retrieved, ID: ${clientFolderId} for client: ${folderData.clientName}`);
+        
+        // Step 1.5: Get the "Shared with Advisor" subfolder for document uploads
+        console.log(`Looking for "Shared with Advisor" subfolder in client folder ${clientFolderId}`);
+        let sharedFolderId = null;
+        try {
+            // Get items in the client folder to find the "Shared with Advisor" subfolder
+            const subfolderResponse = await fetch(`/api/box/check-uploads/?folderId=${clientFolderId}`);
+            if (subfolderResponse.ok) {
+                const subfolderData = await subfolderResponse.json();
+                console.log(`Client folder contents:`, subfolderData);
+                
+                // Look for "Shared with Advisor" folder
+                const sharedFolder = subfolderData.files?.find(item => 
+                    item.type === 'folder' && item.name === 'Shared with Advisor'
+                );
+                
+                if (sharedFolder) {
+                    sharedFolderId = sharedFolder.id;
+                    console.log(`Found "Shared with Advisor" subfolder: ${sharedFolderId}`);
+                } else {
+                    console.warn(`"Shared with Advisor" subfolder not found, using client folder directly`);
+                    sharedFolderId = clientFolderId;
+                }
+            } else {
+                console.warn(`Could not check client folder contents, using client folder directly`);
+                sharedFolderId = clientFolderId;
+            }
+        } catch (error) {
+            console.warn(`Error finding "Shared with Advisor" subfolder: ${error.message}, using client folder directly`);
+            sharedFolderId = clientFolderId;
+        }
+        
+        const folderId = sharedFolderId;
+        console.log(`Using folder ID for uploads: ${folderId}`);
+        
+        // Check for existing files in the folder
+        await checkUploadedFiles(folderId);
+        
+        // Step 2: Get a downscoped token for this folder
+        console.log(`Fetching downscoped token for folder ID: ${folderId}`);
+        const tokenResponse = await fetch(`/api/box/explorer-token/?folderId=${folderId}`);
+        if (!tokenResponse.ok) {
+            const errorText = await tokenResponse.text();
+            console.error(`Failed to get token: ${errorText}`);
+            throw new Error('Failed to get token');
+        }
+        const tokenData = await tokenResponse.json();
+        const accessToken = tokenData.token;
+        console.log(`Token retrieved successfully, length: ${accessToken.length} chars`);
+        
+        // Step 3: Initialize the Box Content Uploader
+        if (typeof Box !== 'undefined' && Box.ContentUploader) {
+            console.log("Box SDK loaded, initializing ContentUploader for document upload");
+            const contentUploader = new Box.ContentUploader();
+            
+            // Store folder ID in the uploader element for easier access later
+            const uploaderElement = document.getElementById('box-uploader');
+            if (uploaderElement) {
+                uploaderElement.dataset.folderId = folderId;
+                console.log(`Set folder ID ${folderId} in uploader element's dataset`);
+            }
+            
+            // Track uploaded files to process metadata
+            const uploadedFiles = [];
+            
+            // Keep track of files currently being processed to avoid duplicate processing
+            const processingQueue = new Set();
+            
+            // Set up event handlers
+            console.log("Setting up Box uploader event listeners for document upload");
+            
+            contentUploader.addListener('upload', function(e) {
+                console.log('Document upload event:', e);
+                
+                // Check if this is a file object with complete data
+                if (e.type === 'file' && e.id) {
+                    console.log(`========== DOCUMENT UPLOAD EVENT FOR FILE ==========`);
+                    console.log(`File: ${e.name} (ID: ${e.id})`);
+                    
+                    // Add to current session tracking
+                    addToCurrentSession({
+                        id: e.id,
+                        name: e.name,
+                        size: e.size,
+                        created_at: new Date().toISOString(),
+                        metadata: {}
+                    });
+                    
+                    // Check if this file has been processed or is being processed
+                    if (processedFiles.has(e.id) || processingQueue.has(e.id)) {
+                        console.log(`File ${e.id} already processed or in processing queue. Skipping.`);
+                        return;
+                    }
+                    
+                    // Store uploaded file info for metadata processing
+                    if (!uploadedFiles.some(f => f.fileId === e.id)) {
+                        uploadedFiles.push({
+                            fileId: e.id,
+                            fileName: e.name
+                        });
+                        console.log(`Added file to processing queue, total files: ${uploadedFiles.length}`);
+                    }
+                    
+                } else if (e.event === 'complete') {
+                    console.log(`========== DOCUMENT UPLOAD COMPLETE ==========`);
+                    console.log(`File: ${e.file?.name} (ID: ${e.file?.id})`);
+                    
+                    // Check if we have a valid file ID
+                    if (e.file && e.file.id) {
+                        console.log(`SUCCESS: Document upload complete for file ID ${e.file.id}: ${e.file.name}`);
+                        
+                        // Only add to queue if not already processed or in processing queue
+                        if (!processedFiles.has(e.file.id) && !processingQueue.has(e.file.id)) {
+                            // Add to processing queue to prevent duplicate processing
+                            processingQueue.add(e.file.id);
+                            
+                            // Process the file with a delay
+                            setTimeout(async () => {
+                                try {
+                                    console.log(`Starting processing for uploaded file: ${e.file.name} (ID: ${e.file.id})`);
+                                    
+                                    // Process only if not already processed during that delay
+                                    if (!processedFiles.has(e.file.id)) {
+                                        const result = await processFileWithMetadata({
+                                            fileId: e.file.id,
+                                            fileName: e.file.name
+                                        });
+                                        console.log(`Processing result:`, result);
+                                    } else {
+                                        console.log(`File ${e.file.id} was processed during the delay. Skipping.`);
+                                    }
+                                    
+                                    // Remove from processing queue
+                                    processingQueue.delete(e.file.id);
+                                    
+                                    // Refresh the file list to show updated metadata
+                                    await checkUploadedFiles(folderId);
+                                    
+                                } catch (error) {
+                                    console.error(`Error in processing: ${error}`);
+                                    processingQueue.delete(e.file.id);
+                                }
+                            }, 2000); // 2 seconds delay
+                        }
+                    }
+                }
+            });
+            
+            contentUploader.addListener('complete', async function(e) {
+                console.log('All document uploads completed:', e);
+                
+                if (uploadedFiles.length === 0) {
+                    console.warn("No files in upload queue to process");
+                    return;
+                }
+                
+                // Filter out already processed files to avoid double processing
+                const pendingFiles = uploadedFiles.filter(file => 
+                    !processedFiles.has(file.fileId) && !processingQueue.has(file.fileId)
+                );
+                
+                console.log(`Found ${pendingFiles.length} files that still need processing out of ${uploadedFiles.length} total files`);
+                
+                // If all files are already processed, just refresh the file list
+                if (pendingFiles.length === 0) {
+                    console.log('All files have already been processed');
+                    await checkUploadedFiles(folderId);
+                    return;
+                }
+                
+                // Extract file IDs for processing
+                const fileIds = pendingFiles.map(file => file.fileId);
+                
+                // Use the startDocumentProcessing function from the document upload page
+                if (typeof startDocumentProcessing === 'function') {
+                    console.log(`Starting document processing for ${fileIds.length} files using startDocumentProcessing function`);
+                    await startDocumentProcessing(fileIds);
+                } else {
+                    console.log('startDocumentProcessing function not available, processing individually');
+                    // Process files individually
+                    for (const file of pendingFiles) {
+                        if (!processingQueue.has(file.fileId)) {
+                            processingQueue.add(file.fileId);
+                            try {
+                                await processFileWithMetadata(file);
+                            } finally {
+                                processingQueue.delete(file.fileId);
+                            }
+                        }
+                    }
+                }
+                
+                // Refresh the file list after processing
+                await checkUploadedFiles(folderId);
+            });
+            
+            console.log(`Showing Box uploader for document upload with folder ID: ${folderId}`);
+            contentUploader.show(folderId, accessToken, {
+                container: '#box-uploader',
+                fileLimit: 100,
+                canUpload: true,
+                canSetShareAccess: false,
+                logoUrl: logoUrl
+            });
+            
+            console.log('Box Content Uploader initialized successfully for document upload');
+        } else {
+            console.error("Box SDK not available:", { 
+                boxDefined: typeof Box !== 'undefined',
+                uploaderAvailable: typeof Box !== 'undefined' && !!Box.ContentUploader
+            });
+            showErrorMessage("Document uploader failed to initialize");
+        }
+    } catch (error) {
+        console.error("Error setting up Box uploader for document upload:", error);
+        showErrorMessage(error.message || "Failed to set up document uploader");
+    }
+}
+
+// Function to initialize Box Content uploader (original for Documents tab)
 async function initializeBoxContent(username, logoUrl) {
     try {
         console.log("========== INITIALIZING BOX CONTENT UPLOADER ==========");
@@ -451,6 +750,15 @@ async function initializeBoxContent(username, logoUrl) {
                     console.log(`========== UPLOAD EVENT FOR FILE ==========`);
                     console.log(`File: ${e.name} (ID: ${e.id})`);
                     console.log(`File details:`, JSON.stringify(e, null, 2));
+                    
+                    // Add to current session tracking
+                    addToCurrentSession({
+                        id: e.id,
+                        name: e.name,
+                        size: e.size,
+                        created_at: new Date().toISOString(),
+                        metadata: {}
+                    });
                     
                     // Check if this file has been processed or is being processed
                     if (processedFiles.has(e.id) || processingQueue.has(e.id)) {
@@ -677,11 +985,36 @@ async function checkUploadedFiles(folderId) {
     }
 }
 
+// Track files uploaded in current session only
+let currentSessionFiles = new Map(); // fileId -> file object
+
 /**
- * Display uploaded files in the UI
- * @param {Array} files - Array of file objects
+ * Add a file to current session tracking
+ * @param {Object} file - File object
  */
-function displayUploadedFiles(files) {
+function addToCurrentSession(file) {
+    currentSessionFiles.set(file.id, file);
+    displayCurrentSessionFiles();
+}
+
+/**
+ * Update a file's metadata in current session tracking
+ * @param {string} fileId - File ID
+ * @param {Object} metadata - Updated metadata
+ */
+function updateCurrentSessionFile(fileId, metadata) {
+    if (currentSessionFiles.has(fileId)) {
+        const file = currentSessionFiles.get(fileId);
+        file.metadata = { ...file.metadata, ...metadata };
+        currentSessionFiles.set(fileId, file);
+        displayCurrentSessionFiles();
+    }
+}
+
+/**
+ * Display only files uploaded in current session
+ */
+function displayCurrentSessionFiles() {
     const filesContainer = document.getElementById('uploaded-files-container');
     const filesList = document.getElementById('uploaded-files-list');
     
@@ -690,7 +1023,14 @@ function displayUploadedFiles(files) {
         return;
     }
     
-    // Sort files by date, newest first
+    const files = Array.from(currentSessionFiles.values());
+    
+    if (files.length === 0) {
+        filesContainer.classList.add('hidden');
+        return;
+    }
+    
+    // Sort files by upload time (newest first)
     const sortedFiles = [...files].sort((a, b) => {
         return new Date(b.created_at || b.modified_at || 0) - new Date(a.created_at || a.modified_at || 0);
     });
@@ -702,7 +1042,7 @@ function displayUploadedFiles(files) {
     sortedFiles.forEach(file => {
         const documentType = file.metadata?.type || 'Unknown';
         const fileSize = formatFileSize(file.size || 0);
-        const fileDate = new Date(file.created_at || file.modified_at || Date.now()).toLocaleDateString();
+        const uploadTime = new Date(file.created_at || file.modified_at || Date.now()).toLocaleTimeString();
         const processingStatus = processedFiles.has(file.id) ? 'Processed' : 'Pending';
         const statusColorClass = processedFiles.has(file.id) ? 'text-green-500' : 'text-yellow-500';
         
@@ -713,7 +1053,7 @@ function displayUploadedFiles(files) {
                 <div class="flex-1 min-w-0">
                     <p class="text-sm font-medium text-gray-900 truncate">${file.name}</p>
                     <div class="flex flex-wrap gap-2 mt-1">
-                        <p class="text-xs text-gray-500">${fileDate}</p>
+                        <p class="text-xs text-gray-500">Uploaded: ${uploadTime}</p>
                         ${documentType !== 'Unknown' ? `<p class="text-xs font-medium text-horizon-primary">${documentType}</p>` : ''}
                     </div>
                 </div>
@@ -728,10 +1068,17 @@ function displayUploadedFiles(files) {
         filesList.appendChild(fileItem);
     });
     
-    // Show the files container if there are files
-    if (sortedFiles.length > 0) {
+    // Show the container
         filesContainer.classList.remove('hidden');
     }
+
+/**
+ * Legacy display function - now redirects to session-based display
+ * @param {Array} files - Array of file objects (ignored, we use current session tracking)
+ */
+function displayUploadedFiles(files) {
+    // Just display current session files instead of all files from folder
+    displayCurrentSessionFiles();
 }
 
 /**

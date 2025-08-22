@@ -1,77 +1,66 @@
-# macOS
-.DS_Store
-.AppleDouble
-.LSOverride
+# Sensitive Files - DO NOT COMMIT
+.env
+*.pem
+*private_key*
+*config.json
+wh_private_key*.json
+218068865_*.json
+
+# Development Files
+server.pid
+server.log
+.oldenv
 
 # Python
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
-
-# Packaging
-*.egg
-*.egg-info/
-dist/
+.Python
 build/
+develop-eggs/
+dist/
+downloads/
+eggs/
 .eggs/
-
-# Environments
-.env
-.env.*
-.venv/
-venv/
-ENV/
-
-# Testing
-.coverage
-htmlcov/
-.pytest_cache/
-.mypy_cache/
-.tox/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
 
 # Django
 *.log
+local_settings.py
 db.sqlite3
+db.sqlite3-journal
 media/
-staticfiles/
 
-# Node / JS
-node_modules/
-.npm/
-.pnp/
-.pnp.js
-.cache/
-.next/
-out/
-.eslintcache
+# Virtual Environment
+.venv/
+venv/
+ENV/
+env/
 
-# Logs
-logs/
-*.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-
-# IDEs & Editors
+# IDE
 .vscode/
 .idea/
-*.suo
-*.ntvs*
-*.njsproj
-*.sln
-*.sw?
+*.swp
+*.swo
 
-# Secrets & Keys
-*.pem
-*.key
-*.crt
-*.pfx
-secrets.*
-config/*.local.*
+# OS
+.DS_Store
+Thumbs.db
 
-# Misc
-*.tar
-*.zip
-coverage.xml
-Thumbs.db 
+# Temporary Demo Files
+Demo Content/
+Horizon FS Logo.png
+Horizon_FS_Logo_dark.png
+
+# Keep these in static/images/ instead
+/*.png

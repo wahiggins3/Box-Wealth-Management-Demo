@@ -19,10 +19,21 @@
     }
     
     .box-uploader {
-        height: 500px;
-        width: 100%;
-        border: 1px solid #e2e8f0;
-        border-radius: 0.375rem;
+        height: 500px !important;
+        width: 100% !important;
+        border: none !important;
+        border-radius: 0 !important;
+        box-shadow: none !important;
+    }
+    
+    /* Aggressive override for any Box widget borders */
+    #box-uploader,
+    #box-uploader *,
+    #box-uploader > *,
+    #box-uploader div,
+    #box-uploader iframe {
+        border: none !important;
+        box-shadow: none !important;
     }
 
     .document-card {
@@ -62,6 +73,8 @@
         background-color: #f0fdf6 !important; /* Light green background */
         border-color: #10b981 !important; /* Green border */
     }
+    
+    /* Remove any conflicting Box UI styling - let the wrapper handle the border */
     
     .document-card-uploaded .document-icon {
         background-color: #10b981 !important; /* Darker green icon */
@@ -244,11 +257,60 @@
             </div>
             
             <div class="md:col-span-2">
-                <h2 class="text-xl font-semibold mb-4">Upload Documents</h2>
+                <div class="flex justify-between items-center mb-4">
+                    <h2 class="text-xl font-semibold">Upload Documents</h2>
+                    <!-- Debug Toggle -->
+                    <div class="flex items-center space-x-2">
+                        <label class="text-sm text-gray-600">Debug Mode:</label>
+                        <button id="debug-toggle" class="bg-gray-200 text-gray-700 px-3 py-1 rounded text-sm hover:bg-gray-300 transition-colors" onclick="toggleDebugMode()">
+                            OFF
+                        </button>
+                    </div>
+                </div>
                 <p class="text-gray-600 mb-4">Drag and drop files or click to browse your computer. You can upload multiple documents at once.</p>
+                <!-- TEMPLATE UPDATE TEST - {{ "now"|date:"Y-m-d H:i:s" }} -->
                 
-                <!-- Box Content Uploader Container -->
-                <div id="box-uploader" class="box-uploader"></div>
+                <!-- Box Content Uploader Container with Blue Outline -->
+                <div class="box-wrapper" style="border: 1px solid #0065DF; border-radius: 8px; padding: 12px; background-color: #f8faff; margin: 8px 0;">
+                    <div id="box-uploader" class="box-uploader"></div>
+                    <div class="box-branding" style="text-align: center; margin-top: 12px; padding: 6px; color: #0065DF; font-size: 12px; font-weight: 500;">
+                        🔒 Powered and secured by Box.com
+                    </div>
+                </div>
+                
+                <!-- Debug Panel (hidden by default) -->
+                <div id="debug-panel" class="mt-4 hidden bg-gray-900 text-gray-100 rounded-lg p-4">
+                    <h3 class="text-lg font-semibold mb-3 text-yellow-400">🔍 AI Agent Debug Information</h3>
+                    <div id="debug-content" class="space-y-4 text-sm font-mono">
+                        <div class="text-gray-400">Debug mode enabled. AI agent interactions will appear here...</div>
+                    </div>
+                </div>
+
+                <!-- Document Processing Status (moved up for better visibility) -->
+                <div id="document-processing-status" class="mt-4 hidden">
+                    <h3 class="text-lg font-semibold mb-2 text-blue-700">📄 Processing Documents</h3>
+                    <div class="bg-blue-50 border border-blue-200 rounded-md p-4">
+                        <div class="flex items-center space-x-3">
+                            <div class="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-600"></div>
+                            <div>
+                                <p class="text-sm text-blue-700">
+                                    <span id="processing-status-text">Analyzing your documents and extracting information...</span>
+                                </p>
+                                <p class="text-xs text-blue-600 mt-1">
+                                    This may take a few minutes depending on the number and complexity of your documents.
+                                </p>
+                            </div>
+                        </div>
+                        <div class="mt-3">
+                            <div class="bg-blue-200 rounded-full h-2">
+                                <div id="processing-progress-bar" class="bg-blue-600 h-2 rounded-full transition-all duration-500" style="width: 0%"></div>
+                            </div>
+                            <p class="text-xs text-blue-600 mt-1">
+                                <span id="processing-progress-text">Preparing to process documents...</span>
+                            </p>
+                        </div>
+                    </div>
+                </div>
                 
                 <!-- Uploaded Files List Container -->
                 <div id="uploaded-files-container" class="mt-6 hidden">
@@ -278,31 +340,7 @@
                     </div>
                 </div>
                 
-                <!-- Document Processing Status -->
-                <div id="document-processing-status" class="mt-6 hidden">
-                    <h3 class="text-lg font-semibold mb-2 text-blue-700">📄 Processing Documents</h3>
-                    <div class="bg-blue-50 border border-blue-200 rounded-md p-4">
-                        <div class="flex items-center space-x-3">
-                            <div class="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-600"></div>
-                            <div>
-                                <p class="text-sm text-blue-700">
-                                    <span id="processing-status-text">Analyzing your documents and extracting information...</span>
-                                </p>
-                                <p class="text-xs text-blue-600 mt-1">
-                                    This may take a few minutes depending on the number and complexity of your documents.
-                                </p>
-                            </div>
-                        </div>
-                        <div class="mt-3">
-                            <div class="bg-blue-200 rounded-full h-2">
-                                <div id="processing-progress-bar" class="bg-blue-600 h-2 rounded-full transition-all duration-500" style="width: 0%"></div>
-                            </div>
-                            <p class="text-xs text-blue-600 mt-1">
-                                <span id="processing-progress-text">Preparing to process documents...</span>
-                            </p>
-                        </div>
-                    </div>
-                </div>
+
                 
                 <p class="text-sm text-gray-500 mt-4">Supported file formats: PDF, JPG, PNG, DOCX, XLSX. Maximum file size: 50MB per file.</p>
             </div>
@@ -339,17 +377,114 @@
     let documentProcessingInProgress = false;
     let processedFilesCount = 0;
     let totalFilesToProcess = 0;
+    let debugMode = false;
+
+    // Debug mode functions
+    function toggleDebugMode() {
+        debugMode = !debugMode;
+        const toggle = document.getElementById('debug-toggle');
+        const panel = document.getElementById('debug-panel');
+        
+        if (debugMode) {
+            toggle.textContent = 'ON';
+            toggle.classList.remove('bg-gray-200', 'text-gray-700');
+            toggle.classList.add('bg-green-500', 'text-white');
+            panel.classList.remove('hidden');
+            addDebugMessage('🟢 Debug mode enabled - AI agent interactions will be shown below', 'info');
+        } else {
+            toggle.textContent = 'OFF';
+            toggle.classList.remove('bg-green-500', 'text-white');
+            toggle.classList.add('bg-gray-200', 'text-gray-700');
+            panel.classList.add('hidden');
+        }
+    }
+
+    function addDebugMessage(message, type = 'info', data = null) {
+        if (!debugMode) return;
+        
+        const debugContent = document.getElementById('debug-content');
+        const timestamp = new Date().toLocaleTimeString();
+        
+        let colorClass = 'text-gray-300';
+        let icon = 'ℹ️';
+        
+        if (type === 'request') {
+            colorClass = 'text-blue-400';
+            icon = '📤';
+        } else if (type === 'response') {
+            colorClass = 'text-green-400';
+            icon = '📥';
+        } else if (type === 'error') {
+            colorClass = 'text-red-400';
+            icon = '❌';
+        } else if (type === 'success') {
+            colorClass = 'text-green-400';
+            icon = '✅';
+        }
+        
+        const messageDiv = document.createElement('div');
+        messageDiv.className = `border-l-2 border-gray-600 pl-3 py-2 ${colorClass}`;
+        
+        let content = `<div class="text-xs text-gray-500">[${timestamp}]</div>`;
+        content += `<div class="font-semibold">${icon} ${message}</div>`;
+        
+        if (data) {
+            content += `<pre class="text-xs mt-2 bg-gray-800 p-2 rounded overflow-x-auto">${JSON.stringify(data, null, 2)}</pre>`;
+        }
+        
+        messageDiv.innerHTML = content;
+        debugContent.appendChild(messageDiv);
+        
+        // Auto-scroll to bottom
+        debugContent.scrollTop = debugContent.scrollHeight;
+    }
+
+    // Function to remove borders from Box widget to prevent double borders
+    function removeBoxWidgetBorders() {
+        // Target Box UI elements that might have borders
+        const selectors = [
+            '#box-uploader > div',
+            '#box-uploader iframe',
+            '.box-uploader > div', 
+            '.box-uploader iframe',
+            'div[data-resin-component="uploader"]',
+            '.buik-uploader',
+            '.buik-uploader-container'
+        ];
+        
+        selectors.forEach(selector => {
+            const elements = document.querySelectorAll(selector);
+            elements.forEach(element => {
+                element.style.border = 'none';
+                element.style.borderRadius = '0';
+                element.style.boxShadow = 'none';
+            });
+        });
+    }
     
     // Initialize Box Content Uploader with API token and folder ID
     document.addEventListener('DOMContentLoaded', function() {
-        // Get the username from backend
-        let username = '{{ user.username }}';
+        // Get user info from backend - prioritize onboarding name over username
+        let clientName = '{{ user.onboarding_info.full_name|default:user.get_full_name|default:user.username }}';
         
         // URL to your logo - customize as needed
-        let logoUrl = '{% static "img/horizon-logo.svg" %}';
+        let logoUrl = '{% static "images/Horizon_FS_Logo_dark_v2.png" %}';
         
-        // Initialize the Box Content Uploader
-        initializeBoxContent(username, logoUrl);
+        console.log(`Initializing Box Content Uploader for client: ${clientName}`);
+        
+        // Initialize the Box Content Uploader using the same method as Documents tab
+        initializeBoxContentUploader(clientName, logoUrl);
+        
+        // Remove any borders from Box widget after it loads to prevent double borders
+        setTimeout(() => {
+            removeBoxWidgetBorders();
+            console.log('Removed Box widget borders to prevent double border');
+        }, 1000);
+        
+        // Also remove borders periodically in case Box UI reloads
+        setInterval(() => {
+            removeBoxWidgetBorders();
+        }, 3000);
         
         // Set up the Submit to Advisor button
         const submitBtn = document.getElementById('submit-to-advisor-btn');
@@ -376,6 +511,13 @@
         updateProcessingProgress(0, `Starting to process ${totalFilesToProcess} documents...`);
         
         try {
+            // Debug: Log batch processing request
+            addDebugMessage(`Starting batch processing for ${fileIds.length} files`, 'request', {
+                endpoint: '/api/box/process-documents-batch/',
+                fileIds: fileIds,
+                totalFiles: fileIds.length
+            });
+
             // Start batch processing
             const response = await fetch('/api/box/process-documents-batch/', {
                 method: 'POST',
@@ -395,6 +537,14 @@
             const result = await response.json();
             console.log('Document processing result:', result);
             
+            // Debug: Log batch processing response
+            addDebugMessage('Batch processing response received', 'response', {
+                success: result.success,
+                totalResults: result.results ? result.results.length : 0,
+                summary: result.summary,
+                results: result.results
+            });
+            
             if (result.success) {
                 processedFilesCount = result.summary.successful;
                 updateProcessingProgress(100, `Successfully processed ${processedFilesCount} of ${totalFilesToProcess} documents`);
@@ -405,7 +555,44 @@
                     result.results.forEach(fileResult => {
                         if (fileResult.success && fileResult.documentType) {
                             console.log(`UPDATING CARD: Document type identified for file ID ${fileResult.fileId}: ${fileResult.documentType}`);
+                            
+                            // Debug: Log individual AI classification result
+                            if (fileResult.debug_info) {
+                                // Show AI Agent Request
+                                if (fileResult.debug_info.ai_agent_request) {
+                                    addDebugMessage(`AI Agent Request for File ${fileResult.fileId}`, 'request', fileResult.debug_info.ai_agent_request);
+                                }
+                                
+                                // Show AI Agent Response
+                                if (fileResult.debug_info.ai_agent_response) {
+                                    addDebugMessage(`AI Agent Response for File ${fileResult.fileId}`, 'response', fileResult.debug_info.ai_agent_response);
+                                }
+                            }
+                            
+                            addDebugMessage(`AI Classification Result for File ${fileResult.fileId}`, 'success', {
+                                fileId: fileResult.fileId,
+                                documentType: fileResult.documentType,
+                                confidence: fileResult.confidence || 'N/A',
+                                extractedData: fileResult.data || 'N/A',
+                                agentUsed: 'Financial Document Classifier (ID: 36769377)',
+                                model: 'Google Gemini 2.5 Pro'
+                            });
+                            
                             updateDocumentCard(fileResult.documentType);
+                            
+                            // Update current session file with identified document type
+                            if (typeof updateCurrentSessionFile === 'function') {
+                                updateCurrentSessionFile(fileResult.fileId, { 
+                                    type: fileResult.documentType 
+                                });
+                            }
+                        } else if (fileResult.success === false) {
+                            // Debug: Log failed classification
+                            addDebugMessage(`AI Classification Failed for File ${fileResult.fileId}`, 'error', {
+                                fileId: fileResult.fileId,
+                                error: fileResult.message || 'Unknown error',
+                                extractionResult: fileResult.extraction_result || 'N/A'
+                            });
                         }
                     });
                 }
