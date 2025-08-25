@@ -152,6 +152,7 @@
         if (stages.length > 0) setInterval(updateStagesAnimation, 2000);
 
 
+        // DISABLED: Financial summary generation for demo
         if (generationStatus === 'pending' && folderId) {
             console.log('Summary generation is pending for folderId:', folderId);
             statusMessage.textContent = 'Your documents are being analyzed to generate a comprehensive financial summary.';
@@ -159,6 +160,8 @@
             successSection.classList.add('hidden');
             errorSection.classList.add('hidden');
 
+            // DEMO: Skip actual financial summary generation
+            /* COMMENTED OUT FOR DEMO
             // Make the API call to generate the financial summary
             fetch('/api/box/generate-financial-summary/', {
                 method: 'POST',
@@ -185,7 +188,21 @@
                 showErrorSection('An error occurred while generating the financial summary. Please try again.');
                 sessionStorage.setItem('summaryGenerationStatus', 'error'); // Mark as error
             });
+            */
 
+        } else if (generationStatus === 'disabled') {
+            // DEMO: Show simple success message when financial summary is disabled
+            console.log('Financial summary generation is disabled for demo');
+            processingSection.classList.add('hidden');
+            errorSection.classList.add('hidden');
+            successSection.classList.remove('hidden');
+            
+            // Show a simple success message
+            const successTitle = document.querySelector('#success-section h2');
+            const successMessage = document.querySelector('#success-section p');
+            if (successTitle) successTitle.textContent = 'Documents Successfully Submitted!';
+            if (successMessage) successMessage.textContent = 'Your documents have been uploaded and shared with your advisor for review.';
+            
         } else if (generationStatus === 'completed' || generationStatus === 'error') {
             // Page was reloaded or navigated back to after generation was attempted.
             // Try to show status based on stored result.

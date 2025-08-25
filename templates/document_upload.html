@@ -268,11 +268,11 @@
                     </div>
                 </div>
                 <p class="text-gray-600 mb-4">Drag and drop files or click to browse your computer. You can upload multiple documents at once.</p>
-                <!-- TEMPLATE UPDATE TEST - {{ "now"|date:"Y-m-d H:i:s" }} -->
+                <!-- SLOW DEMO ANIMATION UPDATE - {{ "now"|date:"Y-m-d H:i:s" }} -->
                 
                 <!-- Box Content Uploader Container with Blue Outline -->
                 <div class="box-wrapper" style="border: 1px solid #0065DF; border-radius: 8px; padding: 12px; background-color: #f8faff; margin: 8px 0;">
-                    <div id="box-uploader" class="box-uploader"></div>
+                <div id="box-uploader" class="box-uploader"></div>
                     <div class="box-branding" style="text-align: center; margin-top: 12px; padding: 6px; color: #0065DF; font-size: 12px; font-weight: 500;">
                         🔒 Powered and secured by Box.com
                     </div>
@@ -285,7 +285,7 @@
                         <div class="text-gray-400">Debug mode enabled. AI agent interactions will appear here...</div>
                     </div>
                 </div>
-
+                
                 <!-- Document Processing Status (moved up for better visibility) -->
                 <div id="document-processing-status" class="mt-4 hidden">
                     <h3 class="text-lg font-semibold mb-2 text-blue-700">📄 Processing Documents</h3>
@@ -668,10 +668,12 @@
         }
     }
     
-    // Function to handle the Submit to Advisor button click
+    // DEMO ENHANCEMENT: Enhanced Submit to Advisor with visual file processing flow
+    // This creates a more engaging demo experience by showing files being "processed" 
+    // and then "shared" with visual feedback before redirecting to summary
     async function handleSubmitToAdvisor() {
         try {
-            console.log('Submit to Advisor button clicked');
+            console.log('Submit to Advisor button clicked - Enhanced Demo Flow');
             
             // Check if document processing is still in progress
             if (documentProcessingInProgress) {
@@ -679,7 +681,150 @@
                 return;
             }
             
-            // Check for any remaining address mismatches
+            // DEMO FLOW: Start the enhanced visual processing
+            await startEnhancedSubmissionFlow();
+            
+        } catch (error) {
+            console.error('Error in handleSubmitToAdvisor:', error);
+            alert('There was an error preparing your submission. Please try again.');
+        }
+    }
+
+    // DEMO ENHANCEMENT: Visual file processing and submission flow
+    async function startEnhancedSubmissionFlow() {
+        console.log('Starting enhanced submission flow for demo');
+        
+        // Get all pending files from the uploaded files list
+        const uploadedFilesContainer = document.getElementById('uploaded-files-list');
+        if (!uploadedFilesContainer) {
+            console.log('No uploaded files container found, using fallback flow');
+            await fallbackSubmissionFlow();
+            return;
+        }
+        
+        // Get all file list items (li elements)
+        const pendingFiles = uploadedFilesContainer.querySelectorAll('li');
+        if (pendingFiles.length === 0) {
+            console.log('No files to process, redirecting to summary');
+            window.location.href = "{% url 'index' %}";
+            return;
+        }
+        
+        console.log(`Processing ${pendingFiles.length} files for demo submission`);
+        
+        // Disable the submit button during processing
+        const submitBtn = document.getElementById('submit-to-advisor-btn');
+        if (submitBtn) {
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Processing Files...';
+            submitBtn.classList.add('opacity-50', 'cursor-not-allowed');
+        }
+        
+        // Process each file with visual feedback - FAST but visible
+        for (let i = 0; i < pendingFiles.length; i++) {
+            const fileItem = pendingFiles[i];
+            await processFileForSubmission(fileItem, i + 1, pendingFiles.length);
+            
+            // Brief delay between files for visual separation (faster)
+            await new Promise(resolve => setTimeout(resolve, 300));
+        }
+        
+        // Show completion message and create horizon plan
+        showSubmissionComplete();
+        
+        // Create the horizon plan and wait for it to complete
+        console.log('DEMO: About to call createHorizonPlan()');
+        await createHorizonPlan();
+        
+        // DEMO: No redirect - stay on page to see logs
+        console.log('DEMO: Horizon plan creation complete. No redirect - staying on page for debugging.');
+    }
+    
+    // DEMO ENHANCEMENT: Process individual file with visual feedback
+    async function processFileForSubmission(fileItem, fileNumber, totalFiles) {
+        return new Promise((resolve) => {
+            // Find the status span element (it has classes like 'text-yellow-500' or 'text-green-500')
+            const statusElement = fileItem.querySelector('span[class*="text-yellow-500"], span[class*="text-green-500"]');
+            const fileName = fileItem.querySelector('.text-gray-900')?.textContent || `File ${fileNumber}`;
+            
+            console.log(`Processing file ${fileNumber}/${totalFiles}: ${fileName}`);
+            
+            // Change status to "Processing..." with blue styling
+            if (statusElement) {
+                statusElement.textContent = 'Processing...';
+                statusElement.className = 'inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium text-blue-600 bg-blue-50';
+            }
+            
+            // DEMO TIMING: Wait 0.8 seconds so audience can see "Processing..." (faster)
+            setTimeout(() => {
+                if (statusElement) {
+                    statusElement.textContent = 'Shared ✓';
+                    statusElement.className = 'inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium text-green-600 bg-green-50';
+                }
+                
+                // Add visual feedback - highlight the entire file item
+                fileItem.style.transition = 'all 0.4s ease'; // Faster transition
+                fileItem.style.backgroundColor = '#f0fdf4'; // Light green background
+                fileItem.style.borderLeft = '4px solid #10b981'; // Green left border
+                fileItem.style.paddingLeft = '12px';
+                
+                // DEMO TIMING: Wait 0.6 seconds so audience can see "Shared ✓" (faster)
+                setTimeout(() => {
+                    // Start slide-away animation
+                    fileItem.style.opacity = '0.3';
+                    fileItem.style.transform = 'translateX(100px) scale(0.95)';
+                    fileItem.style.height = fileItem.offsetHeight + 'px'; // Lock height before collapse
+                    
+                    // DEMO TIMING: Wait 0.4 seconds for slide animation (faster)
+                    setTimeout(() => {
+                        // Collapse the height
+                        fileItem.style.height = '0px';
+                        fileItem.style.paddingTop = '0px';
+                        fileItem.style.paddingBottom = '0px';
+                        fileItem.style.marginTop = '0px';
+                        fileItem.style.marginBottom = '0px';
+                        fileItem.style.overflow = 'hidden';
+                        
+                        // DEMO TIMING: Wait 0.3 seconds for collapse animation (faster)
+                        setTimeout(() => {
+                            fileItem.style.display = 'none';
+                            resolve();
+                        }, 300);
+                    }, 400);
+                }, 600);
+                
+            }, 800); // 0.8 seconds to show "Processing..."
+        });
+    }
+    
+    // DEMO ENHANCEMENT: Show submission completion message
+    function showSubmissionComplete() {
+        const uploadedFilesContainer = document.getElementById('uploaded-files-list');
+        if (uploadedFilesContainer) {
+            uploadedFilesContainer.innerHTML = `
+                <div class="text-center py-8">
+                    <div class="text-green-600 text-4xl mb-4">✓</div>
+                    <h3 class="text-lg font-semibold text-green-800 mb-2">All Documents Shared Successfully!</h3>
+                    <p class="text-gray-600">Your documents have been securely shared with your advisor.</p>
+                    <p class="text-sm text-gray-500 mt-2">Redirecting to summary...</p>
+                </div>
+            `;
+        }
+        
+        // Update the submit button
+        const submitBtn = document.getElementById('submit-to-advisor-btn');
+        if (submitBtn) {
+            submitBtn.textContent = 'Complete ✓';
+            submitBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+            submitBtn.classList.add('bg-green-600');
+        }
+    }
+    
+    // DEMO ENHANCEMENT: Fallback flow for when no files are visible (preserves original functionality)
+    async function fallbackSubmissionFlow() {
+        console.log('Using fallback submission flow');
+        
+        // Check for any remaining address mismatches (original logic)
             const mismatches = await getAddressMismatches();
             if (mismatches && mismatches.length > 0) {
                 const userConfirmed = confirm(
@@ -691,7 +836,7 @@
                 }
             }
             
-            // Get the folder ID from the uploader element
+        // Get the folder ID from the uploader element (original logic)
             const uploaderElement = document.getElementById('box-uploader');
             const folderId = uploaderElement ? uploaderElement.dataset.folderId : null;
             
@@ -703,19 +848,52 @@
             
             console.log(`Initiating financial summary generation for folder: ${folderId}`);
             
-            // Call the function that sets up session storage and redirects
-            // This function is defined in document_processing.js
+        // Call the function that sets up session storage and redirects (original logic)
             if (typeof initiateFinancialSummaryAndRedirect === 'function') {
                 await initiateFinancialSummaryAndRedirect(folderId);
             } else {
                 console.error('initiateFinancialSummaryAndRedirect function not available');
                 // Fallback: redirect directly
                 window.location.href = "{% url 'submission_complete' %}";
-            }
+        }
+    }
+    
+    // DEMO ENHANCEMENT: Create Horizon Plan folder and copy document
+    async function createHorizonPlan() {
+        try {
+            console.log('🚀 DEMO: Starting Horizon Plan creation...');
             
+            const csrfToken = getCSRFToken();
+            console.log('🔑 DEMO: CSRF Token:', csrfToken ? 'Found' : 'Missing');
+            
+            const response = await fetch('/api/box/create-horizon-plan/', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': csrfToken
+                }
+            });
+            
+            console.log('📡 DEMO: API Response status:', response.status);
+            
+            const data = await response.json();
+            console.log('📦 DEMO: API Response data:', data);
+            
+            if (data.success) {
+                console.log('✅ DEMO: Horizon Plan created successfully!', data);
+                
+                // Store plan info in sessionStorage for the main page to use
+                sessionStorage.setItem('horizonPlanReady', 'true');
+                sessionStorage.setItem('horizonPlanFileId', data.plan_file_id);
+                sessionStorage.setItem('horizonPlanFolderId', data.plan_folder_id);
+                sessionStorage.setItem('horizonPlanClientName', data.client_name);
+                
+                console.log('💾 DEMO: Stored plan info in sessionStorage');
+            } else {
+                console.error('❌ DEMO: Failed to create Horizon Plan:', data.message);
+            }
         } catch (error) {
-            console.error('Error in handleSubmitToAdvisor:', error);
-            alert('There was an error preparing your submission. Please try again.');
+            console.error('💥 DEMO: Error creating Horizon Plan:', error);
         }
     }
     

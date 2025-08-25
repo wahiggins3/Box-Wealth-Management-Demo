@@ -1378,7 +1378,9 @@ async function initiateFinancialSummaryAndRedirect(folderId) {
     try {
         // Store information in sessionStorage to be picked up by the submission-complete page
         sessionStorage.setItem('summaryGenerationFolderId', folderId);
-        sessionStorage.setItem('summaryGenerationStatus', 'pending'); // New status
+        // DISABLED: Financial summary generation for demo
+        // sessionStorage.setItem('summaryGenerationStatus', 'pending'); // New status
+        sessionStorage.setItem('summaryGenerationStatus', 'disabled'); // DEMO: Skip financial summary
         sessionStorage.removeItem('summaryGenerationResult'); // Clear any previous results
 
         // Redirect immediately to the submission complete page

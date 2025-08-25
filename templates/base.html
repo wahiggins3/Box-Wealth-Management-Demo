@@ -78,11 +78,19 @@
                             <div class="px-4 py-2 text-sm font-semibold text-gray-700 border-b border-gray-200">
                                 Pending Actions
                             </div>
-                            <a href="{% url 'wealth_onboarding' %}" class="block px-4 py-3 text-sm text-gray-700 hover:bg-gray-100 border-b border-gray-100">
+                            <!-- Dynamic Horizon Plan Ready Message -->
+                            <div id="horizon-plan-message" class="hidden">
+                                <a href="{% url 'financial_plan_preview' %}" class="block px-4 py-3 text-sm text-gray-700 hover:bg-gray-100 border-b border-gray-100 bg-green-50">
+                                    <div class="font-medium text-green-700">Your Financial Plan is Ready!</div>
+                                    <div class="text-xs text-green-600">Click to view your personalized financial plan</div>
+                                </a>
+                            </div>
+                            
+                            <a href="{% url 'wealth_onboarding' %}" class="block px-4 py-3 text-sm text-gray-700 hover:bg-gray-100 border-b border-gray-100" id="onboarding-message">
                                 <div class="font-medium">Complete Wealth Management Onboarding</div>
                                 <div class="text-xs text-gray-500">Wealth management service pending additional information</div>
                             </a>
-                            <a href="#" class="block px-4 py-3 text-sm text-gray-700 hover:bg-gray-100">
+                            <a href="#" class="block px-4 py-3 text-sm text-gray-700 hover:bg-gray-100" id="document-request-message">
                                 <div class="font-medium">Document Request</div>
                                 <div class="text-xs text-gray-500">Please upload your latest tax statement</div>
                             </a>
@@ -150,6 +158,12 @@
     <footer class="bg-horizon-primary text-white py-6">
         <div class="container mx-auto px-4">
             <p class="text-center">&copy; 2024 Horizon Financial Services</p>
+            <!-- Demo Reset Button -->
+            <div class="text-center mt-2">
+                <button id="demo-reset-btn" onclick="resetDemo()" class="text-xs text-gray-400 hover:text-white underline cursor-pointer">
+                    reset demo
+                </button>
+            </div>
         </div>
     </footer>
 
@@ -157,6 +171,7 @@
     
     <!-- Box UI Elements JS -->
     <script src="https://cdn01.boxcdn.net/platform/elements/23.0.0/en-US/explorer.js"></script>
+    <script src="https://cdn01.boxcdn.net/platform/elements/23.0.0/en-US/preview.js"></script>
     
     <script>
         document.addEventListener('DOMContentLoaded', function() {
@@ -215,7 +230,91 @@
                     e.stopPropagation();
                 });
             });
+            
+            // Check for Horizon Plan Ready status
+            checkHorizonPlanStatus();
         });
+        
+        // Function to check if Horizon Plan is ready and update inbox
+        function checkHorizonPlanStatus() {
+            const horizonPlanReady = sessionStorage.getItem('horizonPlanReady');
+            const horizonPlanMessage = document.getElementById('horizon-plan-message');
+            const onboardingMessage = document.getElementById('onboarding-message');
+            const documentRequestMessage = document.getElementById('document-request-message');
+            
+            if (horizonPlanReady === 'true') {
+                console.log('Horizon Plan is ready, showing message in inbox');
+                
+                // Show the horizon plan message
+                if (horizonPlanMessage) {
+                    horizonPlanMessage.classList.remove('hidden');
+                }
+                
+                // Hide the onboarding message since it's complete
+                if (onboardingMessage) {
+                    onboardingMessage.style.display = 'none';
+                }
+                
+                // Update notification badge count (show 2 instead of 3)
+                const badge = document.querySelector('.absolute.-top-2.-right-2');
+                if (badge) {
+                    badge.textContent = '2';
+                }
+                
+                // Clear the session storage flag so it doesn't persist forever
+                // (Comment this out if you want it to persist across sessions)
+                // sessionStorage.removeItem('horizonPlanReady');
+            }
+        }
+        
+        // Demo Reset Function
+        async function resetDemo() {
+            if (!confirm('Reset demo? This will delete the Horizon Plan folder and reset all messages.')) {
+                return;
+            }
+            
+            try {
+                console.log('🔄 DEMO: Starting demo reset...');
+                
+                // Call the reset API
+                const response = await fetch('/api/box/reset-demo/', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': getCSRFToken()
+                    }
+                });
+                
+                const data = await response.json();
+                console.log('🔄 DEMO: Reset API response:', data);
+                
+                if (data.success) {
+                    // Clear session storage
+                    sessionStorage.removeItem('horizonPlanReady');
+                    sessionStorage.removeItem('horizonPlanFileId');
+                    sessionStorage.removeItem('horizonPlanFolderId');
+                    sessionStorage.removeItem('horizonPlanClientName');
+                    
+                    console.log('✅ DEMO: Reset successful!');
+                    alert('Demo reset successfully! ' + data.message);
+                    
+                    // Reload the page to reset the UI
+                    location.reload();
+                } else {
+                    console.error('❌ DEMO: Reset failed:', data.message);
+                    alert('Reset failed: ' + data.message);
+                }
+            } catch (error) {
+                console.error('💥 DEMO: Reset error:', error);
+                alert('Reset error: ' + error.message);
+            }
+        }
+        
+        // Helper function to get CSRF token
+        function getCSRFToken() {
+            return document.querySelector('[name=csrfmiddlewaretoken]')?.value || 
+                   document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
+        }
     </script>
 </body>
 </html> 

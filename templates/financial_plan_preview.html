@@ -1,0 +1,140 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Your Financial Plan - Horizon Financial Portal{% endblock %}
+
+{% block content %}
+<div class="max-w-6xl mx-auto">
+    <!-- Header Section -->
+    <div class="mb-8">
+        <h1 class="text-3xl font-bold text-gray-800 mb-2">Your Personalized Financial Plan</h1>
+        <p class="text-gray-600">Review your comprehensive financial plan prepared by our advisors.</p>
+    </div>
+
+    <!-- Box Preview Container -->
+    <div class="box-wrapper" style="border: 1px solid #0065DF; border-radius: 8px; padding: 12px; background-color: #f8faff; margin: 8px 0;">
+        <div id="box-preview-container" style="height: 600px; border: none; border-radius: 0;"></div>
+        <div class="text-xs text-gray-500 mt-2 text-center">
+            🔒 Powered and secured by Box.com
+        </div>
+    </div>
+
+    <!-- Action Buttons -->
+    <div class="mt-6 flex justify-center space-x-4">
+        <button onclick="downloadPlan()" class="bg-horizon-primary text-white px-6 py-2 rounded-lg hover:bg-horizon-accent transition-colors">
+            Download Plan
+        </button>
+        <a href="{% url 'index' %}" class="bg-gray-500 text-white px-6 py-2 rounded-lg hover:bg-gray-600 transition-colors">
+            Back to Dashboard
+        </a>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    initializeFinancialPlanPreview();
+});
+
+async function initializeFinancialPlanPreview() {
+    try {
+        console.log('🎬 DEMO: Initializing Financial Plan Preview...');
+        
+        // Get plan info from sessionStorage
+        const planFileId = sessionStorage.getItem('horizonPlanFileId');
+        const planFolderId = sessionStorage.getItem('horizonPlanFolderId');
+        const clientName = sessionStorage.getItem('horizonPlanClientName');
+        
+        console.log('📋 DEMO: Session Storage Data:');
+        console.log('  - Plan File ID:', planFileId);
+        console.log('  - Plan Folder ID:', planFolderId);
+        console.log('  - Client Name:', clientName);
+        
+        if (!planFileId) {
+            console.error('❌ DEMO: No plan file ID found in session storage');
+            showError('Financial plan not found. Please try again.');
+            return;
+        }
+        
+        if (!planFolderId) {
+            console.error('❌ DEMO: No plan folder ID found in session storage');
+            showError('Financial plan folder not found. Please try again.');
+            return;
+        }
+        
+        // Get a preview token for the specific file
+        console.log('🎫 DEMO: Requesting preview token for file:', planFileId);
+        const tokenResponse = await fetch(`/api/box/plan-preview-token/?file_id=${planFileId}`, {
+            method: 'GET',
+            headers: {
+                'X-CSRFToken': getCSRFToken()
+            }
+        });
+        
+        console.log('📡 DEMO: Token response status:', tokenResponse.status);
+        
+        if (!tokenResponse.ok) {
+            const errorText = await tokenResponse.text();
+            console.error('❌ DEMO: Token request failed:', errorText);
+            throw new Error(`Failed to get preview token: ${tokenResponse.status} - ${errorText}`);
+        }
+        
+        const tokenData = await tokenResponse.json();
+        console.log('🎫 DEMO: Preview token obtained:', tokenData);
+        
+        // Initialize Box Content Preview
+        console.log('🎥 DEMO: Initializing Box Content Preview...');
+        const preview = new Box.ContentPreview();
+        
+        preview.show(planFileId, tokenData.access_token, {
+            container: '#box-preview-container',
+            showDownload: true,
+            showAnnotations: false,
+            showSidebar: false,
+            fitToWindow: true,
+            logoUrl: "{% static 'images/Horizon_FS_Logo_dark_v2.png' %}"
+        });
+        
+        console.log('✅ DEMO: Box Content Preview initialized successfully');
+        
+    } catch (error) {
+        console.error('Error initializing financial plan preview:', error);
+        showError('Unable to load financial plan preview. Please try again.');
+    }
+}
+
+function showError(message) {
+    const container = document.getElementById('box-preview-container');
+    container.innerHTML = `
+        <div class="flex items-center justify-center h-full">
+            <div class="text-center">
+                <div class="text-red-500 mb-4">
+                    <svg class="h-16 w-16 mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                </div>
+                <h3 class="text-lg font-medium text-gray-900 mb-2">Unable to Load Plan</h3>
+                <p class="text-gray-600">${message}</p>
+                <button onclick="window.location.reload()" class="mt-4 bg-horizon-primary text-white px-4 py-2 rounded hover:bg-horizon-accent">
+                    Try Again
+                </button>
+            </div>
+        </div>
+    `;
+}
+
+function downloadPlan() {
+    const planFileId = sessionStorage.getItem('horizonPlanFileId');
+    if (planFileId) {
+        // This would typically use Box API to generate a download link
+        console.log('Download requested for file:', planFileId);
+        alert('Download functionality would be implemented here using Box API');
+    }
+}
+
+// CSRF Token helper
+function getCSRFToken() {
+    return document.querySelector('[name=csrfmiddlewaretoken]')?.value || 
+           document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
+}
+</script>
+{% endblock %}

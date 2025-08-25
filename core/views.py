@@ -472,6 +472,267 @@ def submission_complete(request):
 
 @login_required
 @csrf_exempt
+def create_horizon_plan(request):
+    """Create 'Your Horizon Plan' folder and copy the financial plan document."""
+    if request.method != 'POST':
+        return JsonResponse({'success': False, 'message': 'Only POST method allowed'}, status=405)
+    
+    try:
+        # Get Box client
+        box_client = get_box_client()
+        
+        # Get the user's client folder (same logic as box_client_folder)
+        user = request.user
+        
+        # Determine client folder name
+        client_name = None
+        if hasattr(user, 'onboarding_info') and user.onboarding_info and user.onboarding_info.full_name:
+            client_name = user.onboarding_info.full_name.strip()
+        elif user.first_name and user.last_name:
+            client_name = f"{user.first_name} {user.last_name}".strip()
+        else:
+            client_name = user.username
+        
+        # Try to find the client folder
+        parent_folder_id = '336919509525'  # Same as document upload
+        try:
+            parent_folder = box_client.folder(parent_folder_id).get()
+            logging.info(f"Using specified parent folder: {parent_folder.name} (ID: {parent_folder_id})")
+        except Exception as e:
+            logging.warning(f"Cannot access folder {parent_folder_id}, using root: {e}")
+            parent_folder_id = '0'
+            parent_folder = box_client.folder(parent_folder_id).get()
+        
+        # Use the same logic as box_client_folder to ensure we get the same folder structure
+        # Call box_client_folder to get or create the client folder with all subfolders
+        from django.test import RequestFactory
+        factory = RequestFactory()
+        folder_request = factory.get('/api/box/client-folder/')
+        folder_request.user = request.user
+        
+        # Call our own view to get the client folder structure
+        folder_response = box_client_folder(folder_request)
+        if folder_response.status_code != 200:
+            return JsonResponse({'success': False, 'message': 'Failed to get client folder structure'}, status=500)
+        
+        # Parse the response to get the client folder ID
+        import json
+        folder_data = json.loads(folder_response.content.decode('utf-8'))
+        client_folder_id = folder_data['folderId']
+        client_folder = box_client.folder(client_folder_id)
+        
+        logging.info(f"Using existing client folder: {client_name} (ID: {client_folder_id})")
+        
+        # Create "Your Horizon Plan" folder inside the client folder (same level as other subfolders)
+        plan_folder_name = "Your Horizon Plan"
+        plan_folder = None
+        
+        # Check if plan folder already exists
+        client_items = client_folder.get_items()
+        for item in client_items:
+            if item.type == 'folder' and item.name == plan_folder_name:
+                plan_folder = item
+                break
+        
+        if not plan_folder:
+            plan_folder = client_folder.create_subfolder(plan_folder_name)
+            logging.info(f"Created plan folder: {plan_folder_name} (ID: {plan_folder.id}) inside client folder {client_name}")
+        
+        # Upload the financial plan document
+        import os
+        plan_file_path = os.path.join(settings.BASE_DIR, 'horizon_financial_plan_final.pdf')
+        
+        if not os.path.exists(plan_file_path):
+            return JsonResponse({'success': False, 'message': 'Financial plan document not found'}, status=404)
+        
+        # Check if file already exists in the folder
+        plan_file = None
+        plan_items = plan_folder.get_items()
+        for item in plan_items:
+            if item.type == 'file' and item.name == 'horizon_financial_plan_final.pdf':
+                plan_file = item
+                break
+        
+        if not plan_file:
+            # Upload the file
+            with open(plan_file_path, 'rb') as file_stream:
+                plan_file = plan_folder.upload_stream(file_stream, 'horizon_financial_plan_final.pdf')
+                logging.info(f"Uploaded financial plan document: {plan_file.name} (ID: {plan_file.id})")
+        
+        return JsonResponse({
+            'success': True,
+            'message': 'Financial plan created successfully',
+            'plan_folder_id': plan_folder.id,
+            'plan_file_id': plan_file.id,
+            'client_name': client_name
+        })
+        
+    except Exception as e:
+        logging.error(f"Error creating horizon plan: {e}", exc_info=True)
+        return JsonResponse({'success': False, 'message': str(e)}, status=500)
+
+@login_required
+def financial_plan_preview(request):
+    """Renders the financial plan preview page with Box preview UI."""
+    return render(request, 'financial_plan_preview.html')
+
+@login_required
+@csrf_exempt
+def get_plan_preview_token(request):
+    """Get a preview token specifically for the financial plan file."""
+    if request.method != 'GET':
+        return JsonResponse({'success': False, 'message': 'Only GET method allowed'}, status=405)
+    
+    try:
+        file_id = request.GET.get('file_id')
+        if not file_id:
+            return JsonResponse({'success': False, 'message': 'file_id parameter required'}, status=400)
+        
+        # Get Box client
+        box_client = get_box_client()
+        
+        # Get the file to ensure it exists and we have access
+        file_obj = box_client.file(file_id).get()
+        logging.info(f"File found: {file_obj.name} (ID: {file_id})")
+        
+        # Create downscoped token for this specific file
+        try:
+            # Try to create a downscoped token with file preview permissions
+            downscoped_token = box_client.downscope_token(
+                scopes=['item_preview', 'item_download'],
+                item=f"https://api.box.com/2.0/files/{file_id}"
+            )
+            
+            return JsonResponse({
+                'success': True,
+                'access_token': downscoped_token,
+                'file_id': file_id,
+                'file_name': file_obj.name
+            })
+            
+        except Exception as downscope_error:
+            logging.warning(f"Downscoping failed: {downscope_error}")
+            
+            # Fallback: return the full service account token
+            # This should work for preview since we have full access
+            auth = box_client.auth
+            access_token = auth.access_token
+            
+            return JsonResponse({
+                'success': True,
+                'access_token': access_token,
+                'file_id': file_id,
+                'file_name': file_obj.name,
+                'note': 'Using full service account token as fallback'
+            })
+            
+    except Exception as e:
+        logging.error(f"Error getting plan preview token: {e}", exc_info=True)
+        return JsonResponse({'success': False, 'message': str(e)}, status=500)
+
+@login_required
+def test_horizon_plan(request):
+    """Test endpoint to manually trigger horizon plan creation."""
+    try:
+        # Call the create_horizon_plan view directly
+        from django.test import RequestFactory
+        factory = RequestFactory()
+        post_request = factory.post('/api/box/create-horizon-plan/')
+        post_request.user = request.user
+        
+        response = create_horizon_plan(post_request)
+        
+        if hasattr(response, 'content'):
+            import json
+            result = json.loads(response.content.decode('utf-8'))
+            return JsonResponse({
+                'test_result': result,
+                'status_code': response.status_code
+            })
+        else:
+            return JsonResponse({'error': 'Unexpected response type'})
+            
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=500)
+
+@login_required
+@csrf_exempt
+def reset_demo(request):
+    """Reset demo by deleting Horizon Plan folder and clearing session storage."""
+    if request.method != 'POST':
+        return JsonResponse({'success': False, 'message': 'Only POST method allowed'}, status=405)
+    
+    try:
+        # Get Box client
+        box_client = get_box_client()
+        
+        # Use the same logic as create_horizon_plan to find the client folder
+        # Call box_client_folder to get the client folder structure
+        from django.test import RequestFactory
+        factory = RequestFactory()
+        folder_request = factory.get('/api/box/client-folder/')
+        folder_request.user = request.user
+        
+        # Call our own view to get the client folder structure
+        folder_response = box_client_folder(folder_request)
+        if folder_response.status_code != 200:
+            return JsonResponse({
+                'success': True,
+                'message': 'No client folder found - nothing to reset'
+            })
+        
+        # Parse the response to get the client folder ID
+        import json
+        folder_data = json.loads(folder_response.content.decode('utf-8'))
+        client_folder_id = folder_data['folderId']
+        client_name = folder_data['clientName']
+        client_folder = box_client.folder(client_folder_id)
+        
+        logging.info(f"Found client folder for reset: {client_name} (ID: {client_folder_id})")
+        
+        # Find "Your Horizon Plan" folder inside client folder
+        plan_folder_name = "Your Horizon Plan"
+        plan_folder = None
+        
+        try:
+            client_items = client_folder.get_items()
+            for item in client_items:
+                if item.type == 'folder' and item.name == plan_folder_name:
+                    plan_folder = item
+                    break
+            
+            if plan_folder:
+                # Delete the entire "Your Horizon Plan" folder (this will delete all files inside it too)
+                plan_folder.delete()
+                logging.info(f"RESET: Deleted Horizon Plan folder: {plan_folder_name} (ID: {plan_folder.id})")
+                
+                return JsonResponse({
+                    'success': True,
+                    'message': f'Demo reset successfully - "{plan_folder_name}" folder and all contents deleted',
+                    'client_name': client_name,
+                    'deleted_folder_id': plan_folder.id
+                })
+            else:
+                return JsonResponse({
+                    'success': True,
+                    'message': f'No "{plan_folder_name}" folder found - nothing to reset',
+                    'client_name': client_name
+                })
+                
+        except Exception as folder_error:
+            logging.error(f"Error accessing client folder contents: {folder_error}")
+            return JsonResponse({
+                'success': True,
+                'message': f'Could not access client folder contents - may already be clean',
+                'client_name': client_name
+            })
+        
+    except Exception as e:
+        logging.error(f"Error resetting demo: {e}", exc_info=True)
+        return JsonResponse({'success': False, 'message': str(e)}, status=500)
+
+@login_required
+@csrf_exempt
 def generate_financial_summary(request):
     """Generate a financial summary PDF using Box AI.
     

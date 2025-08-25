@@ -15,6 +15,8 @@ urlpatterns = [
     path('wealth-onboarding/', views.wealth_onboarding, name='wealth_onboarding'),  # Wealth onboarding page
     path('document-upload/', views.document_upload, name='document_upload'),  # Document upload page
     path('submission-complete/', views.submission_complete, name='submission_complete'),  # Submission completion page
+    path('financial-plan-preview/', views.financial_plan_preview, name='financial_plan_preview'),  # Financial plan preview page
+    path('test-horizon-plan/', views.test_horizon_plan, name='test_horizon_plan'),  # Test horizon plan creation
     path('financial-analysis/', views.financial_analysis_view, name='financial_analysis'), # Financial analysis page
     
     # Box API endpoints
@@ -31,6 +33,9 @@ urlpatterns = [
     path('api/box/check-uploads/', views.check_uploaded_files, name='check_uploads'),
     path('api/box/template-details/', views.get_metadata_template_details, name='get_metadata_template_details'),
     path('api/box/generate-financial-summary/', views.generate_financial_summary, name='generate_financial_summary'),
+    path('api/box/create-horizon-plan/', views.create_horizon_plan, name='create_horizon_plan'),
+    path('api/box/plan-preview-token/', views.get_plan_preview_token, name='get_plan_preview_token'),
+    path('api/box/reset-demo/', views.reset_demo, name='reset_demo'),
     path('api/box/direct-file-url/', views.direct_file_url, name='direct_file_url'),
     path('api/box/test-metadata-query/', views.test_metadata_query, name='test_metadata_query'),
     path('api/address-mismatches/', views.get_address_mismatches, name='get_address_mismatches'),
